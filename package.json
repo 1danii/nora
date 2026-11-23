@@ -1,0 +1,56 @@
+{
+  "name": "nora",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "typescript": "^6.0.3",
+      "@types/bun": "^1.4.4",
+      "varlock": "1.24.0",
+      "react": "^19.3.1",
+      "react-dom": "^19.3.1",
+      "@types/react": "^19.3.0",
+      "@types/react-dom": "^19.3.0",
+      "drizzle-orm": "1.0.0-rc.5-ab785fc",
+      "effect": "4.1.4",
+      "@effect/platform-bun": "4.1.4",
+      "@effect/sql-pg": "4.1.4"
+    }
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web --",
+    "dev:infra": "turbo run dev:infra -F @nora/infra --",
+    "db:push": "turbo run db:push -F @nora/db --",
+    "db:studio": "turbo run db:studio -F @nora/db --",
+    "db:generate": "turbo run db:generate -F @nora/db --",
+    "db:migrate": "turbo run db:migrate -F @nora/db --",
+    "deploy": "turbo run deploy -F @nora/infra --",
+    "destroy": "turbo run destroy -F @nora/infra --",
+    "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/db/",
+    "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/db/",
+    "check": "ultracite check",
+    "test": "vitest run",
+    "fix": "ultracite fix"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261106.1",
+    "@nora/config": "workspace:*",
+    "@stylexjs/eslint-plugin": "^0.19.1",
+    "@types/bun": "catalog:",
+    "oxfmt": "^0.76.0",
+    "oxlint": "^1.92.0",
+    "turbo": "^2.11.10",
+    "typescript": "catalog:",
+    "ultracite": "7.12.0",
+    "varlock": "catalog:",
+    "vitest": "5.1.0"
+  },
+  "packageManager": "bun@1.4.2"
+}

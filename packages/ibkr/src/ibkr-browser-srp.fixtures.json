@@ -1,0 +1,46 @@
+[
+  {
+    "parameters": {
+      "bits": 2048,
+      "N": "d4c7f8a2b32c11b8fba9581ec4ba4f1b04215642ef7355e37c0fc0443ef756ea2c6b8eeb755a1c723027663caa265ef785b8ff6a9b35227a52d86633dbdfca43",
+      "g": "2",
+      "hash": "SHA-1",
+      "proto": "6"
+    },
+    "input": {
+      "username": "nora_test",
+      "password": "samplePassword42",
+      "salt": "000102030405060708090a0b0c0d0e0f",
+      "privateHex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "serverPublic": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "expected": {
+      "A": "5ce1af49800b20020fbec17de0393528af3955c9545d5dcfbb26e10f04eca92d6621e270e21a17621dc29b3cf57e803fcdf829159619ebe97a0145a6914fad02",
+      "M1": "9cc0452589334ac0ed77b0dbda682109940771a2",
+      "M2": "10bdebd3443eb2fd39d7b23f00cc1008d348027b",
+      "sessionKey": "f1e76e2096197c5c86549ffeabd122f584ed8aeb"
+    }
+  },
+  {
+    "parameters": {
+      "bits": 2048,
+      "N": "d4c7f8a2b32c11b8fba9581ec4ba4f1b04215642ef7355e37c0fc0443ef756ea2c6b8eeb755a1c723027663caa265ef785b8ff6a9b35227a52d86633dbdfca43",
+      "g": "2",
+      "hash": "SHA-256",
+      "proto": "6a"
+    },
+    "input": {
+      "username": "nora_test",
+      "password": "samplePassword42",
+      "salt": "000102030405060708090a0b0c0d0e0f",
+      "privateHex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "serverPublic": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "expected": {
+      "A": "5ce1af49800b20020fbec17de0393528af3955c9545d5dcfbb26e10f04eca92d6621e270e21a17621dc29b3cf57e803fcdf829159619ebe97a0145a6914fad02",
+      "M1": "befa40df9dca32660d6c0fbb3a4b41cf5983672c4b7f2b5e991dc2f08ce3b045",
+      "M2": "9dc8db558b11702153a5c764021329a90636b47395cd67bf26736eb0a9530059",
+      "sessionKey": "86b8eee4f5978e812aaee35564114ef1dab03b48bd7d4449996874e7ea8f8dcc"
+    }
+  }
+]

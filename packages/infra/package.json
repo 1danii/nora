@@ -1,0 +1,21 @@
+{
+  "name": "@nora/infra",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "dev:infra": "alchemy dev",
+    "deploy": "alchemy deploy",
+    "destroy": "alchemy destroy"
+  },
+  "devDependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.87",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "4.1.4",
+    "@nora/config": "workspace:*",
+    "alchemy": "2.0.0-beta.87",
+    "effect": "catalog:",
+    "typescript": "catalog:",
+    "varlock": "catalog:"
+  }
+}

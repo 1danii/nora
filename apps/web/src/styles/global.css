@@ -1,0 +1,130 @@
+@import "modern-normalize/modern-normalize.css" layer(reset);
+
+@layer reset {
+  :root {
+    /* The app is dark-only; native controls and scrollbars follow this. */
+    color-scheme: dark;
+  }
+
+  html {
+    /* @font-face lives in fonts.ts so it shares the preloaded URL. */
+    font-family: InterVariable, system-ui, sans-serif;
+    line-height: 1.5;
+    font-feature-settings:
+      "liga" 1,
+      "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Reserve the scrollbar's space so layouts don't shift when a page starts
+     or stops scrolling. No effect with overlay scrollbars (macOS default, mobile).
+     Landing pages opt out: their fixed full-bleed backgrounds would leave an
+     empty strip where the gutter is. */
+  html:not(:has([data-landing])) {
+    scrollbar-gutter: stable;
+  }
+
+  /* No vertical rubber-band bounce on desktop. Touch-first devices keep the default,
+     so pull-to-refresh still works. `pointer` is the primary input only, so
+     hybrid touch laptops need their own testing. `none` also turns off vertical scroll
+     chaining. Horizontal swipe navigation keeps working. */
+  @media (pointer: fine) {
+    html {
+      overscroll-behavior-y: none;
+    }
+  }
+
+  body {
+    /* dvh tracks the mobile browser chrome, unlike vh. */
+    min-height: 100dvh;
+  }
+
+  *,
+  ::before,
+  ::after {
+    border: 0 solid;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  pre,
+  figure,
+  blockquote {
+    margin: 0;
+  }
+
+  /* No browser bold (700): the app uses the default weight and 550, so
+     headings take their weight from their styles (`headings` sets 550). */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  b,
+  strong,
+  th {
+    font-weight: inherit;
+  }
+
+  img,
+  svg,
+  video {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  input,
+  button,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+    background-color: transparent;
+  }
+
+  /* As in Tailwind's Preflight: links look like their surroundings. */
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  /* In the reset layer, so components can replace it in StyleX (Input does). */
+  :focus-visible {
+    outline: 1px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* TanStack Charts leaves its surface focusable on click even with focus
+     off; our charts have nothing to focus, so it shows no ring. */
+  .ts-chart:focus,
+  .ts-chart:focus-visible {
+    outline: none;
+  }
+
+  /* Default text color on the focus ring's blue, wherever text is selected. */
+  ::selection {
+    color: var(--selection-text);
+    background-color: var(--focus-ring);
+  }
+}
+
+/* Shortcut labels: `Hotkey` renders one set per platform and the platform
+   script in __root.tsx sets <html data-platform> before first paint, so only
+   the user's set ever shows. Without the script (no JS), the first set shows.
+   Outside the reset layer, so it wins over StyleX's display. */
+html[data-platform="mac"] [data-platforms]:not([data-platforms~="mac"]),
+html[data-platform="windows"] [data-platforms]:not([data-platforms~="windows"]),
+html[data-platform="linux"] [data-platforms]:not([data-platforms~="linux"]),
+html:not([data-platform]) [data-platforms]:not(:first-child) {
+  display: none;
+}

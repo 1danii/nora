@@ -1,0 +1,23 @@
+{
+  "name": "@nora/ibkr",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./api-schemas": "./src/ibkr-api-schemas.ts",
+    "./browser-login": "./src/ibkr-browser-login.ts",
+    "./browser-schemas": "./src/ibkr-browser-schemas.ts",
+    "./demo": "./src/ibkr-demo.ts",
+    "./login-error": "./src/ibkr-login-error.ts",
+    "./market-stream": "./src/ibkr-market-stream.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@nora/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
