@@ -1,5 +1,7 @@
 import { defineConfig } from "drizzle-kit";
-import "varlock/auto-load";
+
+// Not wired into varlock while the app has no database: set DATABASE_URL in
+// the shell to run Drizzle commands.
 
 export default defineConfig({
   schema: "./src/schema/index.ts",

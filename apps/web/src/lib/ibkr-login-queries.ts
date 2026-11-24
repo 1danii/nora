@@ -1,6 +1,7 @@
 import {
   IbkrApiErrorSchema,
   ibkrGenericLoginMessage,
+  IbkrLoginModeResponseSchema,
   IbkrLoginStatusSchema,
   IbkrPortalResponseSchema,
 } from "@nora/ibkr/browser-schemas";
@@ -87,6 +88,22 @@ export const ibkrSessionQuery = queryOptions({
   // Login steps update this entry directly, so the server-rendered value
   // doesn't need an immediate refetch after hydration.
   staleTime: 30_000,
+});
+
+/**
+ * Whether this deployment takes real IBKR logins or only the demo. Fixed for
+ * the life of the deployment, so it's asked once.
+ */
+export const ibkrLoginModeQuery = queryOptions({
+  queryKey: ["ibkr", "login-mode"],
+  queryFn: async () => {
+    const { mode } = await requestIbkrLogin(
+      "login-mode",
+      IbkrLoginModeResponseSchema
+    );
+    return mode;
+  },
+  staleTime: "static",
 });
 
 const decodePortalResponse = Schema.decodeUnknownOption(

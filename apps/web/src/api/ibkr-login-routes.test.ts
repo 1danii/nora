@@ -1,5 +1,6 @@
 import {
   ibkrCredentialsMessage,
+  ibkrDemoOnlyMessage,
   ibkrGenericLoginMessage,
 } from "@nora/ibkr/browser-schemas";
 import { Layer } from "effect";
@@ -108,15 +109,16 @@ const vendorMock = (
   );
 };
 
-const makeHandler = (
-  fetch: typeof globalThis.fetch,
-  username: string | undefined
-) =>
+/** A private deployment for `username`; a demo one without it. */
+const makeHandler = (fetch: typeof globalThis.fetch, username?: string) =>
   HttpRouter.toWebHandler(
     makeIbkrLoginRoutes({
       origin,
       secret,
-      allowedUsername: username,
+      login:
+        username === undefined
+          ? { mode: "demo" }
+          : { mode: "private", allowedUsername: username },
       demoLatencyMs: 0,
     }).pipe(
       Layer.provide(FetchHttpClient.layer),
@@ -311,16 +313,31 @@ describe("IBKR login API", () => {
       vendorMock({ invalidProof: true }),
       allowedUsername
     )(startRequest());
-    const wrongBody = await wrongPassword.json();
-    await Promise.all(
-      ["someone-else", undefined].map(async (configured) => {
-        const fetch = vendorMock();
-        const response = await makeHandler(fetch, configured)(startRequest());
-        expect(response.status).toBe(wrongPassword.status);
-        expect(await response.json()).toEqual(wrongBody);
-        expect(response.headers.getSetCookie()).toEqual([]);
-        expect(fetch).not.toHaveBeenCalled();
-      })
-    );
+    const fetch = vendorMock();
+    const response = await makeHandler(fetch, "someone-else")(startRequest());
+    expect(response.status).toBe(wrongPassword.status);
+    expect(await response.json()).toEqual(await wrongPassword.json());
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses every real login in demo mode, before reading credentials", async () => {
+    const fetch = vendorMock();
+    const handler = makeHandler(fetch);
+    const mode = await handler(new Request(`${origin}/api/ibkr/login-mode`));
+    expect(await mode.json()).toEqual({ mode: "demo" });
+    const response = await handler(startRequest());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: ibkrDemoOnlyMessage });
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports private mode to the login page", async () => {
+    const response = await makeHandler(
+      vendorMock(),
+      allowedUsername
+    )(new Request(`${origin}/api/ibkr/login-mode`));
+    expect(await response.json()).toEqual({ mode: "private" });
   });
 });

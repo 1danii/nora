@@ -23,6 +23,22 @@ export const IbkrLoginFactorSchema = Schema.Struct({
   factor: requiredText("verification method", 16),
 });
 
+/**
+ * Who can log in with a real IBKR account (`IBKR_LOGIN_MODE`): nobody in a
+ * public `demo` deployment, the allowed username in a `private` one.
+ */
+export const IbkrLoginModeSchema = Schema.Literals(["demo", "private"]);
+export type IbkrLoginMode = typeof IbkrLoginModeSchema.Type;
+
+/** Body of `GET /api/ibkr/login-mode`, which the login page reads. */
+export const IbkrLoginModeResponseSchema = Schema.Struct({
+  mode: IbkrLoginModeSchema,
+});
+
+/** The answer to a real login attempt on a demo deployment. */
+export const ibkrDemoOnlyMessage =
+  "This is a demo, so IBKR logins are off. Try the demo account instead.";
+
 /** Login progress shown in the browser, without vendor session secrets. */
 export const IbkrLoginStatusSchema = Schema.Struct({
   state: Schema.Literals([

@@ -49,7 +49,8 @@ export const AuthStep = ({
   title,
 }: {
   children: ReactNode;
-  description: string;
+  /** Text, or text with inline links. */
+  description: ReactNode;
   title: string;
 }) => (
   <section {...stylex.props(styles.step)}>

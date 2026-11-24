@@ -17,11 +17,13 @@ import type {
 } from "@nora/ibkr/browser-login";
 import {
   ibkrCredentialsMessage,
+  ibkrDemoOnlyMessage,
   ibkrGenericLoginMessage,
   IbkrLoginFactorSchema,
   IbkrLoginStartSchema,
 } from "@nora/ibkr/browser-schemas";
 import type {
+  IbkrLoginMode,
   IbkrPortalResponse,
   IbkrResearchNamespace,
 } from "@nora/ibkr/browser-schemas";
@@ -95,6 +97,7 @@ const noStoreHeaders = {
 type RouteBody =
   | IbkrLoginStatus
   | IbkrPortalResponse
+  | { readonly mode: IbkrLoginMode }
   | { readonly error: string };
 
 interface RouteResult {
@@ -159,14 +162,22 @@ const runInSession = <A, R>(
   });
 
 /**
+ * Who may log in with a real IBKR account. A demo deployment refuses every
+ * real login; a private one only the allowed username, so the API is never
+ * an open login relay.
+ */
+export type IbkrLoginConfig =
+  | { readonly mode: "demo" }
+  | { readonly mode: "private"; readonly allowedUsername: string };
+
+/**
  * The IBKR browser login API. Session state lives only in encrypted HttpOnly
  * cookies; vendor response bodies and credentials never reach logs or clients.
  */
 export const makeIbkrLoginRoutes = (options: {
   readonly origin: string;
   readonly secret: string;
-  /** The only IBKR username allowed to sign in, so the API is not an open login relay. */
-  readonly allowedUsername: string | undefined;
+  readonly login: IbkrLoginConfig;
   /**
    * How long each demo portal call takes, in ms. The fixtures answer
    * instantly; this makes the demo load like the real app, skeletons included.
@@ -180,8 +191,11 @@ export const makeIbkrLoginRoutes = (options: {
       const httpClient = yield* HttpClient.HttpClient;
       const { origin, protocol } = new URL(options.origin);
       const secure = protocol === "https:";
+      const { login } = options;
       const allowedUsername =
-        options.allowedUsername?.trim().toLowerCase() || undefined;
+        login.mode === "private"
+          ? login.allowedUsername.trim().toLowerCase()
+          : undefined;
 
       const respond = (
         body: RouteBody,
@@ -291,6 +305,12 @@ export const makeIbkrLoginRoutes = (options: {
               }))
             )
           )
+        ),
+        // Whether the login page offers a real IBKR login or only the demo.
+        HttpRouter.add(
+          "GET",
+          "/api/ibkr/login-mode",
+          handle(Effect.succeed({ body: { mode: login.mode } }))
         ),
         // Passthrough to IBKR's Client Portal API with the session's cookies,
         // returning IBKR's own status and body.
@@ -479,6 +499,13 @@ export const makeIbkrLoginRoutes = (options: {
           handle(
             Effect.gen(function* start() {
               yield* requireSameOrigin;
+              if (login.mode === "demo") {
+                // Refused before the body is read: a public deployment
+                // never handles IBKR credentials.
+                return yield* Effect.fail(
+                  ibkrLoginError("Forbidden", ibkrDemoOnlyMessage)
+                );
+              }
               const body = yield* readBody(IbkrLoginStartSchema);
               // Before the username check, so its answer can't depend on it.
               if (yield* currentSnapshot) {
@@ -489,10 +516,7 @@ export const makeIbkrLoginRoutes = (options: {
                   )
                 );
               }
-              if (
-                !allowedUsername ||
-                body.username.trim().toLowerCase() !== allowedUsername
-              ) {
+              if (body.username.trim().toLowerCase() !== allowedUsername) {
                 // Answered like a wrong password, so the reply doesn't say
                 // which username is allowed. IBKR is never contacted.
                 return yield* Effect.fail(

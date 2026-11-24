@@ -24,7 +24,11 @@ import { useEffect, useRef } from "react";
 import { AuthStep } from "@/components/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ibkrSessionQuery, requestIbkrLogin } from "@/lib/ibkr-login-queries";
+import {
+  ibkrLoginModeQuery,
+  ibkrSessionQuery,
+  requestIbkrLogin,
+} from "@/lib/ibkr-login-queries";
 import { text } from "@/styles/text";
 import { colors, radius } from "@/styles/tokens.stylex";
 
@@ -81,6 +85,10 @@ const styles = stylex.create({
     },
     transitionProperty: "opacity",
   },
+  // A link inside sentence text, colored like the demo button.
+  inlineLink: {
+    color: colors.gray12,
+  },
   formError: {
     color: colors.red9,
     textAlign: "center",
@@ -97,6 +105,9 @@ const styles = stylex.create({
     paddingTop: stylex.env.spacing(1.5),
   },
 });
+
+/** Nora's source, for people who want to run their own copy. */
+const repositoryUrl = "https://github.com/1danii/nora";
 
 // The same Effect schema validates the API request body on the server.
 const startValidator = Schema.toStandardSchemaV1(IbkrLoginStartSchema);
@@ -229,6 +240,7 @@ const SignInForm = ({
 /** IBKR login: password, then approval in IBKR Mobile, polled until it lands. */
 export const IbkrLoginForm = () => {
   const { data: status } = useSuspenseQuery(ibkrSessionQuery);
+  const { data: loginMode } = useSuspenseQuery(ibkrLoginModeQuery);
   const queryClient = useQueryClient();
   const update = (value: IbkrLoginStatus) => {
     queryClient.setQueryData(ibkrSessionQuery.queryKey, value);
@@ -334,38 +346,76 @@ export const IbkrLoginForm = () => {
       Cancel
     </Button>
   );
+  // A public demo deployment has no credential fields at all, so nobody
+  // types an IBKR password into it.
+  const demoOnly = (
+    <AuthStep
+      title="Try Nora"
+      description={
+        <>
+          Explore Nora with a sample IBKR account, or{" "}
+          <a
+            href={repositoryUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...stylex.props(styles.inlineLink)}
+          >
+            deploy your own
+          </a>
+          .
+        </>
+      }
+    >
+      <div {...stylex.props(styles.stack)}>
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() => demo.mutate()}
+        >
+          Try the demo
+        </Button>
+        {formError}
+      </div>
+    </AuthStep>
+  );
   const steps = {
-    disconnected: (
-      <AuthStep title="Log in to IBKR" description="Use your IBKR credentials.">
-        <div {...stylex.props(styles.signInBody)}>
-          {/* The form error sits 12px below the form. */}
-          <div {...stylex.props(styles.stack)}>
-            <SignInForm
-              busy={busy}
-              signIn={(value) => {
-                demo.reset();
-                return start.mutateAsync(value);
-              }}
-            />
-            {formError}
+    disconnected:
+      loginMode === "demo" ? (
+        demoOnly
+      ) : (
+        <AuthStep
+          title="Log in to IBKR"
+          description="Use your IBKR credentials."
+        >
+          <div {...stylex.props(styles.signInBody)}>
+            {/* The form error sits 12px below the form. */}
+            <div {...stylex.props(styles.stack)}>
+              <SignInForm
+                busy={busy}
+                signIn={(value) => {
+                  demo.reset();
+                  return start.mutateAsync(value);
+                }}
+              />
+              {formError}
+            </div>
+            <p {...stylex.props(text[12], styles.demo)}>
+              No IBKR account?{" "}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  start.reset();
+                  demo.mutate();
+                }}
+                {...stylex.props(styles.demoButton)}
+              >
+                Try the demo
+              </button>
+            </p>
           </div>
-          <p {...stylex.props(text[12], styles.demo)}>
-            No IBKR account?{" "}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                start.reset();
-                demo.mutate();
-              }}
-              {...stylex.props(styles.demoButton)}
-            >
-              Try the demo
-            </button>
-          </p>
-        </div>
-      </AuthStep>
-    ),
+        </AuthStep>
+      ),
     chooseFactor: (
       <AuthStep
         title="Approve the login"

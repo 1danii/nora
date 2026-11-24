@@ -4,7 +4,7 @@ import { createFileRoute, Navigate, redirect } from "@tanstack/react-router";
 import { AuthShell } from "@/components/auth-shell";
 import { IbkrLoginForm } from "@/components/ibkr-login-form";
 import { QueryBoundary } from "@/components/query-boundary";
-import { ibkrSessionQuery } from "@/lib/ibkr-login-queries";
+import { ibkrLoginModeQuery, ibkrSessionQuery } from "@/lib/ibkr-login-queries";
 
 interface LoginSearch {
   /** Where to go after logging in: an in-app path, set by the dashboard guard. */
@@ -68,6 +68,10 @@ export const Route = createFileRoute("/_app/login/")({
     if (session.state === "authenticated") {
       throw redirect({ href: search.redirect ?? "/dashboard", replace: true });
     }
+  },
+  // Started, not awaited: the form suspends on it inside its own boundary.
+  loader: ({ context }) => {
+    void context.queryClient.prefetchQuery(ibkrLoginModeQuery);
   },
   component: () => (
     <QueryBoundary>

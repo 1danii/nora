@@ -1,7 +1,9 @@
+import { IbkrLoginModeSchema } from "@nora/ibkr/browser-schemas";
 import { Config, Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter } from "effect/http";
 
 import { makeIbkrLoginRoutes } from "./ibkr-login-routes";
+import type { IbkrLoginConfig } from "./ibkr-login-routes";
 
 /**
  * Every `/api/*` route, as one Effect HTTP router. Config is read from
@@ -12,13 +14,25 @@ const apiLayer = Layer.unwrap(
   Effect.gen(function* loadApiConfig() {
     const origin = yield* Config.String("APP_ORIGIN");
     const secret = yield* Config.Redacted("SESSION_SECRET");
-    const allowedUsername = yield* Config.String("IBKR_ALLOWED_USERNAME").pipe(
-      Config.withDefault("")
-    );
+    // Demo unless the deployment says otherwise, so a missing variable can't
+    // turn real logins on. Varlock validates both in dev and on deploy.
+    const mode = yield* Config.schema(
+      IbkrLoginModeSchema,
+      "IBKR_LOGIN_MODE"
+    ).pipe(Config.withDefault("demo" as const));
+    const login: IbkrLoginConfig =
+      mode === "private"
+        ? {
+            mode,
+            allowedUsername: yield* Config.NonEmptyString(
+              "IBKR_ALLOWED_USERNAME"
+            ),
+          }
+        : { mode };
     return makeIbkrLoginRoutes({
       origin,
       secret: Redacted.value(secret),
-      allowedUsername,
+      login,
     });
   })
 ).pipe(Layer.provide(FetchHttpClient.layer));
