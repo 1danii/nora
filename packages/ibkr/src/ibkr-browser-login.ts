@@ -12,7 +12,10 @@ import { Cookies, HttpClientRequest } from "effect/http";
 
 import { bytesToHex } from "./bigint-bytes";
 import { ibkrBrowserRequest, ibkrBrowserSend } from "./ibkr-browser-http";
-import { IbkrLoginStatusSchema } from "./ibkr-browser-schemas";
+import {
+  ibkrCredentialsMessage,
+  IbkrLoginStatusSchema,
+} from "./ibkr-browser-schemas";
 import type { IbkrResearchNamespace } from "./ibkr-browser-schemas";
 import { createIbkrSrp, ibkrSrpDefaults } from "./ibkr-browser-srp";
 import { ibkrLoginError } from "./ibkr-login-error";
@@ -584,17 +587,13 @@ export const selectIbkrFactor = Effect.fn("IbkrLogin.selectFactor")(
   }
 );
 
-/** Password step: SRP handshake, server proof check, then factor selection. */
-export const startIbkrLogin = Effect.fn("IbkrLogin.start")(
-  function* startIbkrLogin(inputUsername: string, password: string) {
-    const username = inputUsername.includes("@")
-      ? inputUsername.trim()
-      : inputUsername.trim().toLowerCase();
-    yield* updateState((state) => ({
-      ...state,
-      status: { state: "disconnected", username },
-    }));
-    yield* bootstrap;
+/**
+ * The SRP handshake and server proof check. Every failure, IBKR's own refusals
+ * included, becomes `ibkrCredentialsMessage`, so a wrong password, an unknown
+ * or locked account and a username Nora refuses all look the same.
+ */
+const authenticate = Effect.fn("IbkrLogin.authenticate")(
+  function* authenticate(username: string, password: string) {
     const { service } = yield* currentState;
     let parameters = ibkrSrpDefaults;
     for (let negotiation = 0; negotiation < 3; negotiation += 1) {
@@ -644,39 +643,10 @@ export const startIbkrLogin = Effect.fn("IbkrLogin.start")(
         BigInt(`0x${serverProof}`) !== BigInt(`0x${proof.M2}`)
       ) {
         return yield* Effect.fail(
-          ibkrLoginError("Rejected", "Incorrect username or password.")
+          ibkrLoginError("Rejected", "IBKR login: server proof mismatch")
         );
       }
-      const disabled = new Set((complete.sf_disabled ?? []).map(String));
-      const offered = (complete.sftypes ?? []).map(String);
-      const factors = offered.flatMap((id) => {
-        const label = factorLabels.get(id);
-        return label && !disabled.has(id) ? [{ id, label }] : [];
-      });
-      if (offered.length > 0 && factors.length === 0) {
-        return yield* Effect.fail(
-          ibkrLoginError(
-            "Rejected",
-            "Your account uses an unsupported verification method."
-          )
-        );
-      }
-      yield* updateState((state) => ({
-        ...state,
-        sessionKey: proof.sessionKey,
-      }));
-      if (factors.length === 0) {
-        yield* finish;
-        return yield* ibkrLoginStatus;
-      }
-      yield* updateState((state) => ({
-        ...state,
-        status: { ...state.status, state: "chooseFactor", factors },
-      }));
-      const [first] = factors;
-      return factors.length === 1 && first
-        ? yield* selectIbkrFactor(first.id)
-        : yield* ibkrLoginStatus;
+      return { complete, sessionKey: proof.sessionKey };
     }
     return yield* Effect.fail(
       ibkrLoginError(
@@ -684,6 +654,56 @@ export const startIbkrLogin = Effect.fn("IbkrLogin.start")(
         "IBKR login: authentication parameters kept changing"
       )
     );
+  },
+  (effect) =>
+    effect.pipe(
+      Effect.tapError((failure) =>
+        Effect.logWarning("IBKR password step failed", failure.message)
+      ),
+      Effect.mapError(() => ibkrLoginError("Rejected", ibkrCredentialsMessage))
+    )
+);
+
+/** Password step: SRP handshake, server proof check, then factor selection. */
+export const startIbkrLogin = Effect.fn("IbkrLogin.start")(
+  function* startIbkrLogin(inputUsername: string, password: string) {
+    const username = inputUsername.includes("@")
+      ? inputUsername.trim()
+      : inputUsername.trim().toLowerCase();
+    yield* updateState((state) => ({
+      ...state,
+      status: { state: "disconnected", username },
+    }));
+    yield* bootstrap;
+    const { complete, sessionKey } = yield* authenticate(username, password);
+    // Past this point the password was right, so errors can be specific.
+    const disabled = new Set((complete.sf_disabled ?? []).map(String));
+    const offered = (complete.sftypes ?? []).map(String);
+    const factors = offered.flatMap((id) => {
+      const label = factorLabels.get(id);
+      return label && !disabled.has(id) ? [{ id, label }] : [];
+    });
+    if (offered.length > 0 && factors.length === 0) {
+      return yield* Effect.fail(
+        ibkrLoginError(
+          "Rejected",
+          "Your account uses an unsupported verification method."
+        )
+      );
+    }
+    yield* updateState((state) => ({ ...state, sessionKey }));
+    if (factors.length === 0) {
+      yield* finish;
+      return yield* ibkrLoginStatus;
+    }
+    yield* updateState((state) => ({
+      ...state,
+      status: { ...state.status, state: "chooseFactor", factors },
+    }));
+    const [first] = factors;
+    return factors.length === 1 && first
+      ? yield* selectIbkrFactor(first.id)
+      : yield* ibkrLoginStatus;
   }
 );
 

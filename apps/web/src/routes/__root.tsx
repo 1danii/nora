@@ -33,6 +33,32 @@ const styles = stylex.create({
   },
 });
 
+/**
+ * Page security headers. The CSP is the backstop against injected scripts:
+ * the IBKR proxy acts with the whole session, so only this site's files and
+ * the router's nonced inline scripts may run. Styles allow inline because
+ * StyleX, Motion and Base UI set style attributes; those can't run code.
+ */
+const securityHeaders = (nonce: string) => ({
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    // Company logos load straight from IBKR; flags and textures can be data URIs.
+    "img-src 'self' data: https://api.ibkr.com",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; "),
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "same-origin",
+  "Strict-Transport-Security": "max-age=31536000",
+});
+
 const RootShell = ({ children }: { children: ReactNode }) => (
   // The platform script below adds `data-platform` before React hydrates.
   <html lang="en" suppressHydrationWarning {...stylex.props(styles.page)}>
@@ -89,7 +115,14 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
   // SSR is set per group: _landing renders fully, _app is data-only.
-  headers: () => ({ "Cache-Control": "private, no-store" }),
+  // Security headers in production only: Vite's dev server injects un-nonced
+  // scripts and styles, which the CSP would block.
+  headers: ({ ssr }) => {
+    const cache = { "Cache-Control": "private, no-store" };
+    return import.meta.env.DEV || !ssr?.nonce
+      ? cache
+      : { ...cache, ...securityHeaders(ssr.nonce) };
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },

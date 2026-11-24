@@ -55,6 +55,15 @@ export type IbkrPortalResponse = typeof IbkrPortalResponseSchema.Type;
 export const ibkrGenericLoginMessage =
   "Couldn't log in. Try again in a moment.";
 
+/**
+ * The one answer to a failed password step, whatever the cause: a refused
+ * username, a wrong password, a locked account or IBKR failing mid-step. A
+ * single answer means the login can't be used to find out which username is
+ * allowed, or whether an account exists at IBKR.
+ */
+export const ibkrCredentialsMessage =
+  "Couldn't log in. Check your username and password, then try again.";
+
 /** Error body of every failed `/api/ibkr/*` response. */
 export const IbkrApiErrorSchema = Schema.Struct({ error: Schema.String });
 

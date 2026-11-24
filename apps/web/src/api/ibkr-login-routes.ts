@@ -16,6 +16,7 @@ import type {
   IbkrLoginStatus,
 } from "@nora/ibkr/browser-login";
 import {
+  ibkrCredentialsMessage,
   ibkrGenericLoginMessage,
   IbkrLoginFactorSchema,
   IbkrLoginStartSchema,
@@ -479,20 +480,23 @@ export const makeIbkrLoginRoutes = (options: {
             Effect.gen(function* start() {
               yield* requireSameOrigin;
               const body = yield* readBody(IbkrLoginStartSchema);
-              if (
-                !allowedUsername ||
-                body.username.trim().toLowerCase() !== allowedUsername
-              ) {
-                return yield* Effect.fail(
-                  ibkrLoginError("Forbidden", "Username is not allowed.")
-                );
-              }
+              // Before the username check, so its answer can't depend on it.
               if (yield* currentSnapshot) {
                 return yield* Effect.fail(
                   ibkrLoginError(
                     "Conflict",
                     "Cancel or sign out before starting another login."
                   )
+                );
+              }
+              if (
+                !allowedUsername ||
+                body.username.trim().toLowerCase() !== allowedUsername
+              ) {
+                // Answered like a wrong password, so the reply doesn't say
+                // which username is allowed. IBKR is never contacted.
+                return yield* Effect.fail(
+                  ibkrLoginError("Rejected", ibkrCredentialsMessage)
                 );
               }
               return yield* persisted(

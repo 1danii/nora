@@ -11,14 +11,30 @@ interface LoginSearch {
   redirect?: string;
 }
 
+/** A stand-in origin: only used to tell whether a path stays on this site. */
+const localOrigin = "http://nora.invalid";
+
 /**
  * Only same-origin paths, so a crafted `?redirect=` link can't send a fresh
- * login to another site (`//evil.com` and `/\evil.com` are protocol-relative).
+ * login to another site. Parsed as a browser would, which also catches
+ * `//evil.com`, `/\evil.com` and `/<tab>/evil.com` (URLs drop tabs and
+ * newlines). Returns the parsed path, never the raw input.
  */
-const safeRedirect = (value: string): string | undefined =>
-  value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\")
-    ? value
+const safeRedirect = (value: string): string | undefined => {
+  if (!value.startsWith("/")) {
+    return undefined;
+  }
+  // `new URL` rather than `URL.parse`, which older Safari lacks.
+  let url: URL;
+  try {
+    url = new URL(value, localOrigin);
+  } catch {
+    return undefined;
+  }
+  return url.origin === localOrigin
+    ? `${url.pathname}${url.search}${url.hash}`
     : undefined;
+};
 
 /** The login form until the session is authenticated, then where the user was headed. */
 const IbkrLogin = () => {

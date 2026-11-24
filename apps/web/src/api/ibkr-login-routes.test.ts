@@ -1,4 +1,7 @@
-import { ibkrGenericLoginMessage } from "@nora/ibkr/browser-schemas";
+import {
+  ibkrCredentialsMessage,
+  ibkrGenericLoginMessage,
+} from "@nora/ibkr/browser-schemas";
 import { Layer } from "effect";
 import { FetchHttpClient, HttpRouter } from "effect/http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -257,9 +260,7 @@ describe("IBKR login API", () => {
       allowedUsername
     )(startRequest());
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "Incorrect username or password.",
-    });
+    expect(await response.json()).toEqual({ error: ibkrCredentialsMessage });
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 
@@ -305,12 +306,19 @@ describe("IBKR login API", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("refuses usernames other than the configured one before contacting IBKR", async () => {
+  it("refuses other usernames like a wrong password, without contacting IBKR", async () => {
+    const wrongPassword = await makeHandler(
+      vendorMock({ invalidProof: true }),
+      allowedUsername
+    )(startRequest());
+    const wrongBody = await wrongPassword.json();
     await Promise.all(
       ["someone-else", undefined].map(async (configured) => {
         const fetch = vendorMock();
         const response = await makeHandler(fetch, configured)(startRequest());
-        expect(response.status).toBe(403);
+        expect(response.status).toBe(wrongPassword.status);
+        expect(await response.json()).toEqual(wrongBody);
+        expect(response.headers.getSetCookie()).toEqual([]);
         expect(fetch).not.toHaveBeenCalled();
       })
     );

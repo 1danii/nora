@@ -1,11 +1,22 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
+import { createIsomorphicFn } from "@tanstack/react-start";
 
 import Loader from "./components/loader";
 import { NotFound } from "./components/not-found";
 import { ErrorNotice } from "./components/query-boundary";
 import { routeTree } from "./routeTree.gen";
+
+/**
+ * A fresh CSP nonce for each server render. The router puts it on its inline
+ * scripts and in a `csp-nonce` meta tag, which the browser's router reads back;
+ * the root route's `headers` builds the Content-Security-Policy from it.
+ */
+const ssrOptions = createIsomorphicFn().server(() => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return { nonce: btoa(String.fromCodePoint(...bytes)) };
+});
 
 /** One router and QueryClient per SSR request, so readers never share cached data. */
 export const getRouter = () => {
@@ -17,6 +28,7 @@ export const getRouter = () => {
   const router = createTanStackRouter({
     routeTree,
     context: { queryClient },
+    ssr: ssrOptions(),
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
