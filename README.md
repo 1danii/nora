@@ -45,7 +45,7 @@ Secrets: generate SESSION_SECRET yourself and pipe it straight into Wrangler, so
 3. Log in to Cloudflare. Run `bunx wrangler login` and tell me to approve it in the browser window it opens. Then run `bunx wrangler whoami`. If it lists more than one account, ask me which one to use and set CLOUDFLARE_ACCOUNT_ID to its ID for every later command.
    Check: `bunx wrangler whoami` shows me logged in, with one account chosen.
 
-4. Build and deploy: `bun run build && bun run deploy -- --name NAME`. The config already sets IBKR_LOGIN_MODE=private; keep it.
+4. Build and deploy: `bun run build && bun run deploy -- --name NAME --var IBKR_LOGIN_MODE:private`. The Worker keeps this var on later deploys, so it is needed only this once.
    Check: the deploy output prints the Worker's workers.dev URL. Call it URL below.
 
 5. Set the two secrets on the Worker:
@@ -77,12 +77,13 @@ Secrets: generate SESSION_SECRET yourself and pipe it straight into Wrangler, so
 
 ### 1. Deploy the Worker
 
-**With the button.** Click [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora). It copies the repo to your GitHub, sets up Workers Builds and asks for two values:
+**With the button.** Click [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora). It copies the repo to your GitHub, sets up Workers Builds and asks for three values:
 
+- `IBKR_LOGIN_MODE`: leave it at `private`.
 - `IBKR_ALLOWED_USERNAME`: your IBKR username. Only this account can log in.
 - `SESSION_SECRET`: a random string of at least 32 characters, for example from `openssl rand -base64 48`.
 
-Keep `IBKR_LOGIN_MODE` set to `private`. If you change the Workers Builds settings later, the deploy command must stay `bun run deploy`: the default `npx wrangler deploy` reads the source config instead of the built one.
+If you change the Workers Builds settings later, the deploy command must stay `bun run deploy`: the default `npx wrangler deploy` reads the source config instead of the built one.
 
 **From your machine.** With [Bun](https://bun.sh) installed:
 
@@ -90,12 +91,12 @@ Keep `IBKR_LOGIN_MODE` set to `private`. If you change the Workers Builds settin
 git clone https://github.com/1danii/nora && cd nora
 bun install
 bunx wrangler login
-bun run build && bun run deploy
+bun run build && bun run deploy -- --var IBKR_LOGIN_MODE:private
 openssl rand -base64 48 | tr -d '\n' | bunx wrangler secret put SESSION_SECRET
 bunx wrangler secret put IBKR_ALLOWED_USERNAME   # type your IBKR username
 ```
 
-This deploys a Worker named `nora`. Add `-- --name <name>` to `bun run deploy`, and `--name <name>` to each `wrangler secret put`, to pick another name.
+This deploys a Worker named `nora`. Add `--name <name>` after `bun run deploy --` and to each `wrangler secret put` to pick another name. The Worker keeps `IBKR_LOGIN_MODE` on later deploys, so plain `bun run deploy` is enough from then on.
 
 ### 2. Turn on Cloudflare Access
 
@@ -120,6 +121,8 @@ A public deployment that only offers the demo account, with no Access or secrets
 ```bash
 bun run build && bun run deploy -- --name nora-demo --var IBKR_LOGIN_MODE:demo
 ```
+
+A Worker without `IBKR_LOGIN_MODE` is a demo too, so a demo connected to GitHub needs nothing more. Deploys keep the Worker's vars, including one set in the dashboard.
 
 ## Development
 

@@ -1,4 +1,6 @@
 # Secrets the Deploy to Cloudflare button asks for. For local dev, use
 # apps/web/.env instead (see apps/web/.env.example).
+# private: real IBKR login for IBKR_ALLOWED_USERNAME, behind Cloudflare Access.
+IBKR_LOGIN_MODE=private
 SESSION_SECRET=
 IBKR_ALLOWED_USERNAME=

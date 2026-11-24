@@ -8,11 +8,12 @@
   // process.env and the node:* modules that Effect and varlock use.
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "vars": {
-    // Real IBKR login for IBKR_ALLOWED_USERNAME, so this Worker must sit behind
-    // Cloudflare Access (Settings → Domains & Routes → Cloudflare Access, all
-    // traffic). Without it every request gets a 403. Set to "demo" for a public
-    // deployment that only offers the demo account.
-    "IBKR_LOGIN_MODE": "private",
-  },
+  // IBKR_LOGIN_MODE is set per deployment, never here: a var in this file
+  // would overwrite the deployment's own on every deploy. keep_vars keeps the
+  // vars set on the Worker (dashboard or `--var`). Unset means demo.
+  // - private: real IBKR login for IBKR_ALLOWED_USERNAME, so the Worker must
+  //   sit behind Cloudflare Access (Settings → Domains & Routes → Cloudflare
+  //   Access, all traffic). Without it every request gets a 403.
+  // - demo: only the demo account. For public deployments.
+  "keep_vars": true,
 }
