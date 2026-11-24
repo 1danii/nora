@@ -36,6 +36,13 @@ const SEARCH_INTERVAL = 1000;
 
 const OPEN_HOTKEY = "Mod+K";
 
+// A strong ease-out: the palette arrives quickly and settles. It leaves
+// faster than it comes (the ending style's duration), so closing never holds
+// up what's next. Under reduced motion only the fade plays.
+const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+const ENTER_DURATION = "200ms";
+const EXIT_DURATION = "120ms";
+
 const styles = stylex.create({
   // An input's box, as a button: it opens the palette rather than taking
   // text itself. A 40px pill, unlike other inputs: a one-off for the header's
@@ -87,11 +94,11 @@ const styles = stylex.create({
     },
     position: "fixed",
     transitionDuration: {
-      default: "100ms",
-      "@media (prefers-reduced-motion: reduce)": "0s",
+      "[data-ending-style]": EXIT_DURATION,
+      default: ENTER_DURATION,
     },
     transitionProperty: "opacity",
-    transitionTimingFunction: "ease-out",
+    transitionTimingFunction: EASE_OUT,
     zIndex: 50,
   },
   // Where the login form sits: up to 336px below the top, shrinking with the
@@ -124,15 +131,21 @@ const styles = stylex.create({
     },
     transform: {
       "[data-ending-style]": "scale(0.98)",
-      "[data-starting-style]": "scale(0.98)",
+      "[data-starting-style]": "scale(0.96)",
       default: "none",
     },
     transitionDuration: {
-      default: "100ms",
-      "@media (prefers-reduced-motion: reduce)": "0s",
+      "[data-ending-style]": EXIT_DURATION,
+      default: ENTER_DURATION,
     },
-    transitionProperty: "opacity, transform",
-    transitionTimingFunction: "ease-out",
+    transitionProperty: {
+      default: "opacity, transform",
+      "@media (prefers-reduced-motion: reduce)": "opacity",
+    },
+    transitionTimingFunction: EASE_OUT,
+    // Kept on its own layer after the transition too: dropping the layer
+    // when it ends re-rasterizes the text, which shifts it by a subpixel.
+    willChange: "opacity, transform",
     height: "min(440px, 100%)",
     maxWidth: 640,
     width: "100%",
