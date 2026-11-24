@@ -1,6 +1,3 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
-
 import { cloudflare } from "@cloudflare/vite-plugin";
 import type { PluginConfig } from "@cloudflare/vite-plugin";
 import stylex from "@stylexjs/unplugin/vite";
@@ -8,7 +5,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { varlockCloudflareVitePlugin } from "@varlock/cloudflare-integration";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import type { Plugin } from "vite";
 
 import { radixColors } from "./src/styles/radix-colors.ts";
 
@@ -21,34 +17,6 @@ const cloudflareOptions: PluginConfig = {
   configPath: "../../wrangler.jsonc",
   viteEnvironment: { name: "ssr" },
 };
-
-/**
- * After a build, points Wrangler run from the repo root at the built Worker
- * config, the way the Cloudflare plugin already does for apps/web. Workers
- * Builds' default deploy command, `npx wrangler deploy`, runs from the root.
- */
-const rootDeployRedirect = (): Plugin => ({
-  name: "nora:root-deploy-redirect",
-  apply: "build",
-  closeBundle() {
-    const directory = path.resolve(
-      import.meta.dirname,
-      "../../.wrangler/deploy"
-    );
-    const builtConfig = path.resolve(
-      import.meta.dirname,
-      "dist/server/wrangler.json"
-    );
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(
-      path.join(directory, "config.json"),
-      JSON.stringify({
-        configPath: path.relative(directory, builtConfig),
-        auxiliaryWorkers: [],
-      })
-    );
-  },
-});
 
 export default defineConfig(({ command }) => ({
   server: {
@@ -77,7 +45,6 @@ export default defineConfig(({ command }) => ({
     command === "serve"
       ? varlockCloudflareVitePlugin(cloudflareOptions)
       : cloudflare(cloudflareOptions),
-    rootDeployRedirect(),
     tanstackStart(),
     viteReact({ compiler: true }),
   ],

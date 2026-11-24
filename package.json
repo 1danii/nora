@@ -31,7 +31,7 @@
     "db:studio": "turbo run db:studio -F @nora/db --",
     "db:generate": "turbo run db:generate -F @nora/db --",
     "db:migrate": "turbo run db:migrate -F @nora/db --",
-    "deploy": "turbo run build && wrangler deploy",
+    "deploy": "wrangler deploy --config apps/web/dist/server/wrangler.json",
     "env:generate": "varlock codegen --path ./apps/web/",
     "postinstall": "varlock codegen --path ./apps/web/",
     "check": "ultracite check",

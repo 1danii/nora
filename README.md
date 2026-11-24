@@ -90,7 +90,7 @@ Run standalone Node/Bun tools that use Varlock from the owning app directory so 
 
 ## Deployment
 
-One Cloudflare Worker serves the TanStack Start app and its Effect API. The source config is `wrangler.jsonc` at the repo root (where the Deploy button reads it); `vite build` turns it into `apps/web/dist/server/wrangler.json` and points Wrangler at it (`.wrangler/deploy/config.json`), so a plain `wrangler deploy` from the root ships the build. That's also Workers Builds' default deploy command.
+One Cloudflare Worker serves the TanStack Start app and its Effect API. The source config is `wrangler.jsonc` at the repo root (where the Deploy button reads it); `bun run build` turns it into `apps/web/dist/server/wrangler.json`, and `bun run deploy` ships that. In Workers Builds, set the deploy command to `bun run deploy` (the Deploy button fills it in from `package.json`; the default `npx wrangler deploy` would read the source config instead of the build).
 
 The app stores nothing: IBKR data is fetched live, and the login session lives in encrypted cookies. The database package stays for later but is not deployed.
 
@@ -107,12 +107,12 @@ A public deployment that only offers the demo account. From your machine, with `
 
 ```bash
 bunx wrangler secret put SESSION_SECRET --name nora-demo
-bun run deploy -- --name nora-demo --var IBKR_LOGIN_MODE:demo
+bun run build && bun run deploy -- --name nora-demo --var IBKR_LOGIN_MODE:demo
 ```
 
 ### From your machine
 
-`bun run deploy` builds and deploys the private Worker named in `wrangler.jsonc`. Set secrets once with `bunx wrangler secret put <NAME>`.
+`bun run build && bun run deploy` builds and deploys the private Worker named in `wrangler.jsonc`. Set secrets once with `bunx wrangler secret put <NAME>`.
 
 ## Project Structure
 
