@@ -10,6 +10,7 @@
       "typescript": "^6.0.3",
       "@types/bun": "^1.4.5",
       "varlock": "1.25.0",
+      "wrangler": "^4.167.0",
       "react": "^19.3.1",
       "react-dom": "^19.3.1",
       "@types/react": "^19.3.0",
@@ -30,7 +31,7 @@
     "db:studio": "turbo run db:studio -F @nora/db --",
     "db:generate": "turbo run db:generate -F @nora/db --",
     "db:migrate": "turbo run db:migrate -F @nora/db --",
-    "deploy": "cd apps/web && bun run deploy",
+    "deploy": "turbo run build && wrangler deploy",
     "env:generate": "varlock codegen --path ./apps/web/",
     "postinstall": "varlock codegen --path ./apps/web/",
     "check": "ultracite check",
@@ -48,7 +49,8 @@
     "typescript": "catalog:",
     "ultracite": "7.12.0",
     "varlock": "catalog:",
-    "vitest": "5.1.1"
+    "vitest": "5.1.1",
+    "wrangler": "catalog:"
   },
   "packageManager": "bun@1.4.2",
   "cloudflare": {
