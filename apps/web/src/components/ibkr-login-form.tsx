@@ -29,6 +29,7 @@ import {
   ibkrSessionQuery,
   requestIbkrLogin,
 } from "@/lib/ibkr-login-queries";
+import { repositoryUrl } from "@/lib/repository";
 import { text } from "@/styles/text";
 import { colors, radius } from "@/styles/tokens.stylex";
 
@@ -105,9 +106,6 @@ const styles = stylex.create({
     paddingTop: stylex.env.spacing(1.5),
   },
 });
-
-/** Nora's source, for people who want to run their own copy. */
-const repositoryUrl = "https://github.com/1danii/nora";
 
 // The same Effect schema validates the API request body on the server.
 const startValidator = Schema.toStandardSchemaV1(IbkrLoginStartSchema);

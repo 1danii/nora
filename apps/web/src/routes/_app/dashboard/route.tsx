@@ -17,8 +17,9 @@ import { QueryBoundary } from "@/components/query-boundary";
 import { prefetchAccountHeader } from "@/lib/ibkr-account-queries";
 import { ibkrBrokerageQuery } from "@/lib/ibkr-asset-queries";
 import { useIbkrKeepAlive } from "@/lib/ibkr-brokerage";
-import { ibkrSessionQuery } from "@/lib/ibkr-login-queries";
+import { ibkrLoginModeQuery, ibkrSessionQuery } from "@/lib/ibkr-login-queries";
 import { useIbkrSignOut } from "@/lib/ibkr-sign-out";
+import { repositoryUrl } from "@/lib/repository";
 import { text } from "@/styles/text";
 import { colors } from "@/styles/tokens.stylex";
 
@@ -105,35 +106,55 @@ const styles = stylex.create({
     fontFamily: "inherit",
     fontWeight: 550,
     textDecorationLine: "underline",
-    textDecorationThickness: {
-      default: "1px",
-      ":hover": "2px",
-    },
+    textDecorationThickness: "1px",
     textUnderlineOffset: "3px",
   },
 });
 
-/** Says the figures are made up, with the way to a real login. */
+/**
+ * Says the figures are made up, with the way to a real login, or where only
+ * the demo runs, to deploying your own.
+ */
 const DemoBanner = () => {
   const { data: session } = useSuspenseQuery(ibkrSessionQuery);
-  const signOut = useIbkrSignOut();
   if (!session.demo) {
     return null;
   }
   return (
     <div {...stylex.props(text[14], styles.demoBanner)}>
       <span>You’re exploring a demo account with sample data.</span>
-      <button
-        type="button"
-        disabled={signOut.isPending}
-        onClick={() => {
-          signOut.mutate();
-        }}
+      <DemoAction />
+    </div>
+  );
+};
+
+/** Leaves the demo for a real login, or points to deploying your own. */
+const DemoAction = () => {
+  const { loginMode } = Route.useRouteContext();
+  const signOut = useIbkrSignOut();
+  if (loginMode === "demo") {
+    return (
+      <a
+        href={repositoryUrl}
+        target="_blank"
+        rel="noopener noreferrer"
         {...stylex.props(styles.demoAction)}
       >
-        {signOut.isPending ? "Leaving demo…" : "Log in with IBKR"}
-      </button>
-    </div>
+        Deploy your own
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={signOut.isPending}
+      onClick={() => {
+        signOut.mutate();
+      }}
+      {...stylex.props(styles.demoAction)}
+    >
+      {signOut.isPending ? "Leaving demo…" : "Log in with IBKR"}
+    </button>
   );
 };
 
@@ -228,10 +249,12 @@ const SignedIn = () => {
  */
 export const Route = createFileRoute("/_app/dashboard")({
   beforeLoad: async ({ context, location }) => {
-    const session = await context.queryClient.query({
-      ...ibkrSessionQuery,
-      staleTime: "static",
-    });
+    // The login mode is fixed per deployment, so after the first load (or the
+    // login page) it's already cached.
+    const [session, loginMode] = await Promise.all([
+      context.queryClient.query({ ...ibkrSessionQuery, staleTime: "static" }),
+      context.queryClient.ensureQueryData(ibkrLoginModeQuery),
+    ]);
     if (session.state !== "authenticated") {
       // Login sends the user back here afterwards.
       throw redirect({
@@ -240,7 +263,7 @@ export const Route = createFileRoute("/_app/dashboard")({
         replace: true,
       });
     }
-    return { session };
+    return { session, loginMode };
   },
   // Not awaited: the header's balance loads beside the page, never before it.
   loader: ({ context }) => {
