@@ -6,7 +6,7 @@ import { Schema } from "effect";
 import { parseIbkrNumber } from "@/lib/format";
 import {
   IbkrPendingError,
-  ibkrBrokerageQuery,
+  requireBrokerage,
   listingSlug,
   retryWhilePending,
 } from "@/lib/ibkr-asset-queries";
@@ -80,7 +80,7 @@ export const exploreScanQuery = (scan: ExploreScan) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "explore", "scan", scan.code],
     queryFn: async ({ client }): Promise<ScanRow[]> => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const result = decodeScanResult(
         await requestIbkrPortal(
           "POST",
@@ -276,7 +276,7 @@ export const exploreScreenerQuery = (params: ScreenerParams) =>
     queryFn: async ({ client }): Promise<ScreenerResult> => {
       // The screener needs the brokerage session's ID, which Bread's server
       // reads once the session is open.
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const body = await requestIbkrScreener(
         "POST",
         "scanner/customSnapshot",

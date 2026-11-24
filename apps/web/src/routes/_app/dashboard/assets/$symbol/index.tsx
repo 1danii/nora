@@ -1,22 +1,22 @@
 import { Button } from "@base-ui/react/button";
-import { Toggle } from "@base-ui/react/toggle";
-import { ToggleGroup } from "@base-ui/react/toggle-group";
 import NumberFlow, { NumberFlowElement } from "@number-flow/react";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import * as stylex from "@stylexjs/stylex";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import type { Schema } from "effect";
 import { MotionConfig, motion } from "motion/react";
 import type { ReactNode, Ref } from "react";
 import { useState } from "react";
 
+import { FactGrid } from "@/components/fact-grid";
 import { ListingExchange } from "@/components/listing-exchange";
 import { changeSkeleton, PriceChange, Trend } from "@/components/price-change";
 import type { HoveredBar } from "@/components/price-chart";
 import { PriceChart } from "@/components/price-chart";
 import { PriceTargetChart } from "@/components/price-target-chart";
 import { QueryBoundary } from "@/components/query-boundary";
+import { RangePicker } from "@/components/range-picker";
+import { RawData } from "@/components/raw-data";
 import { TickerLogo, TickerLogoPlaceholder } from "@/components/ticker-logo";
 import { InstantReveal } from "@/components/ui/skeleton";
 import {
@@ -136,52 +136,6 @@ const styles = stylex.create({
     marginTop: stylex.env.spacing(6),
   },
 
-  // Isolated as a whole, so the sliding pill stays under every label, not
-  // just its own. The first pill starts at the container's edge.
-  ranges: {
-    display: "flex",
-    isolation: "isolate",
-  },
-  // A small outline button's height, 48px wide; only the selected one has a
-  // pill behind.
-  range: {
-    borderRadius: radius.full,
-    borderStyle: "none",
-    paddingBlock: 0,
-    paddingInline: 0,
-    alignItems: "center",
-    appearance: "none",
-    backgroundColor: "transparent",
-    color: {
-      "[data-pressed]": colors.gray12,
-      default: colors.gray11,
-      ":hover": colors.gray12,
-    },
-    cursor: "pointer",
-    display: "inline-flex",
-    fontFamily: "inherit",
-    // As the buttons.
-    fontWeight: 550,
-    // Equal widths, so the pill keeps one size as it slides.
-    justifyContent: "center",
-    position: "relative",
-    transitionDuration: {
-      default: "100ms",
-      "@media (prefers-reduced-motion: reduce)": "0s",
-    },
-    transitionProperty: "color",
-    transitionTimingFunction: "ease",
-    height: stylex.env.spacing(7),
-    width: stylex.env.spacing(12),
-  },
-  // The outline button's background, sliding to the selected timeframe.
-  rangePill: {
-    inset: 0,
-    borderRadius: radius.full,
-    backgroundColor: colors.gray2,
-    position: "absolute",
-    zIndex: -1,
-  },
   // The price on the left, the listing's exchange on the right.
   quoteRow: {
     gap: stylex.env.spacing(4),
@@ -232,20 +186,11 @@ const styles = stylex.create({
     flexDirection: "column",
     marginTop: stylex.env.spacing(10),
   },
-  facts: {
-    margin: 0,
-    gap: stylex.env.spacing(4),
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-  },
   fact: {
     gap: stylex.env.spacing(1),
     display: "flex",
     flexDirection: "column",
     minWidth: 0,
-  },
-  factLabel: {
-    color: colors.gray11,
   },
   factValue: {
     margin: 0,
@@ -384,15 +329,6 @@ const styles = stylex.create({
   }),
   articleTitle: {
     color: colors.gray12,
-  },
-  raw: {
-    color: colors.gray11,
-    cursor: "pointer",
-  },
-  rawJson: {
-    overflow: "auto",
-    whiteSpace: "pre",
-    maxHeight: 320,
   },
   about: {
     margin: 0,
@@ -814,39 +750,17 @@ const TimeframePicker = ({
   range: HistoryRange;
   onRangeChange?: (range: HistoryRange) => void;
 }) => (
-  // With reduced motion, the pill jumps instead of sliding.
-  <MotionConfig reducedMotion="user">
-    <ToggleGroup
-      aria-label="Timeframe"
-      value={[range.id]}
-      onValueChange={([id]) => {
-        // Pressing the selected timeframe again would clear the group.
-        const next = historyRanges.find((option) => option.id === id);
-        if (next) {
-          onRangeChange?.(next);
-        }
-      }}
-      {...stylex.props(styles.ranges)}
-    >
-      {historyRanges.map((option) => (
-        <Toggle
-          key={option.id}
-          value={option.id}
-          {...stylex.props(text[12], styles.range)}
-        >
-          {option.id === range.id ? (
-            <motion.span
-              aria-hidden="true"
-              layoutId="timeframe-pill"
-              transition={pillTransition}
-              {...stylex.props(styles.rangePill)}
-            />
-          ) : null}
-          {option.label}
-        </Toggle>
-      ))}
-    </ToggleGroup>
-  </MotionConfig>
+  <RangePicker
+    label="Timeframe"
+    options={historyRanges}
+    value={range.id}
+    onValueChange={(id) => {
+      const next = historyRanges.find((option) => option.id === id);
+      if (next) {
+        onRangeChange?.(next);
+      }
+    }}
+  />
 );
 
 /**
@@ -884,25 +798,6 @@ const AssetHistory = ({
     </InstantReveal>
     <TimeframePicker range={range} onRangeChange={onRangeChange} />
   </section>
-);
-
-/** Slides in the same 100ms as the label's colour. */
-const pillTransition = { duration: 0.1, ease: "easeInOut" } as const;
-
-/** Labelled values in a grid, e.g. "P/E" over "35.12". */
-const FactGrid = ({
-  facts,
-}: {
-  facts: readonly { label: string; value: string }[];
-}) => (
-  <dl {...stylex.props(styles.facts)}>
-    {facts.map(({ label, value }) => (
-      <div key={label} {...stylex.props(styles.fact)}>
-        <dt {...stylex.props(text[12], styles.factLabel)}>{label}</dt>
-        <dd {...stylex.props(text[14], styles.factValue)}>{value}</dd>
-      </div>
-    ))}
-  </dl>
 );
 
 /** A titled block below the chart. */
@@ -1039,17 +934,6 @@ const AssetDetailsSkeleton = ({ symbol }: { symbol: string }) => (
       </aside>
     </div>
   </div>
-);
-
-/**
- * What IBKR sent, as JSON, folded away. The fundamentals responses are
- * undocumented, so the page shows them while we learn their shape.
- */
-const RawData = ({ data }: { data: Schema.Json }) => (
-  <details {...stylex.props(text[12], styles.raw)}>
-    <summary>Raw data</summary>
-    <pre {...stylex.props(styles.rawJson)}>{JSON.stringify(data, null, 2)}</pre>
-  </details>
 );
 
 /** IBKR's business summary for the company. */
@@ -1580,7 +1464,7 @@ const AssetPage = () => {
 
 export const Route = createFileRoute("/_app/dashboard/assets/$symbol/")({
   head: ({ params }) => ({
-    meta: [{ title: `${params.symbol.toUpperCase()} · Nora` }],
+    meta: [{ title: `${params.symbol.toUpperCase()} – Nora` }],
   }),
   // The dashboard layout has already checked the session.
   loader: ({ context, params }) => {

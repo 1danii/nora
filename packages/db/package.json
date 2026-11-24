@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@nora/config": "workspace:*",
-    "drizzle-kit": "1.0.0-rc.5-ab785fc",
+    "drizzle-kit": "1.0.0-rc.6",
     "typescript": "catalog:",
     "varlock": "catalog:"
   }

@@ -1,6 +1,16 @@
-import { Clock, Context, Effect, Option, Ref, Result, Schema } from "effect";
+import {
+  Clock,
+  Context,
+  Effect,
+  Option,
+  Ref,
+  Result,
+  Schema,
+  SchemaTransformation,
+} from "effect";
 import { Cookies, HttpClientRequest } from "effect/http";
 
+import { bytesToHex } from "./bigint-bytes";
 import { ibkrBrowserRequest, ibkrBrowserSend } from "./ibkr-browser-http";
 import { IbkrLoginStatusSchema } from "./ibkr-browser-schemas";
 import type { IbkrResearchNamespace } from "./ibkr-browser-schemas";
@@ -19,6 +29,17 @@ const factorLabels = new Map([
 const secondFactorWindowMs = 120_000;
 const authenticatedWindowMs = 30 * 60_000;
 
+/** IBKR's login script compares these flags to the string "true"; booleans are accepted too. */
+const IbkrFlagSchema = Schema.Union([Schema.Boolean, Schema.String]).pipe(
+  Schema.decodeTo(
+    Schema.Boolean,
+    SchemaTransformation.transform({
+      decode: (value) => value === true || value === "true",
+      encode: (value) => value,
+    })
+  )
+);
+
 /** Vendor replies, parsed at the upstream boundary. Unknown fields are ignored. */
 const AuthResponseSchema = Schema.Struct({
   N: Schema.optional(Schema.String),
@@ -32,17 +53,15 @@ const AuthResponseSchema = Schema.Struct({
   lp: Schema.optional(Schema.Boolean),
   ERROR: Schema.optional(Schema.Unknown),
   error: Schema.optional(Schema.Unknown),
-  reached_max_login: Schema.optional(
-    Schema.Union([Schema.Boolean, Schema.String])
-  ),
+  reached_max_login: Schema.optional(IbkrFlagSchema),
   sftypes: Schema.optional(
     Schema.Array(Schema.Union([Schema.String, Schema.Number]))
   ),
   sf_disabled: Schema.optional(
     Schema.Array(Schema.Union([Schema.String, Schema.Number]))
   ),
-  push_sent: Schema.optional(Schema.Union([Schema.Boolean, Schema.String])),
-  auth_res: Schema.optional(Schema.Union([Schema.Boolean, Schema.String])),
+  push_sent: Schema.optional(IbkrFlagSchema),
+  auth_res: Schema.optional(IbkrFlagSchema),
 });
 type AuthResponse = typeof AuthResponseSchema.Type;
 
@@ -72,8 +91,7 @@ export const IbkrBrowserSnapshotSchema = Schema.Struct({
 export type IbkrBrowserSnapshot = typeof IbkrBrowserSnapshotSchema.Type;
 type SessionState = Omit<IbkrBrowserSnapshot, "cookies">;
 
-const { cookies: _emptyCookies, ...emptyState } = {
-  cookies: [],
+const emptySessionState: SessionState = {
   authenticator: "https://ndcdyn.interactivebrokers.com/sso/Authenticator",
   dispatcher: "https://ndcdyn.interactivebrokers.com/sso/Dispatcher",
   service: "AM.LOGIN",
@@ -82,8 +100,7 @@ const { cookies: _emptyCookies, ...emptyState } = {
   counter: 0,
   forwardFields: "loginType=1",
   status: { state: "disconnected" },
-} satisfies IbkrBrowserSnapshot;
-const emptySessionState: SessionState = emptyState;
+};
 export const emptyIbkrBrowserSnapshot: IbkrBrowserSnapshot = {
   ...emptySessionState,
   cookies: [],
@@ -136,9 +153,6 @@ export const snapshotIbkrBrowserSession = Effect.gen(
   }
 );
 
-const isTrue = (value: boolean | string | undefined) =>
-  value === true || value === "true";
-
 const decodeNonEmpty = Schema.decodeUnknownOption(Schema.NonEmptyString);
 
 const requiredField = (response: AuthResponse, name: keyof AuthResponse) =>
@@ -163,6 +177,19 @@ const currentState = Effect.gen(function* readSessionState() {
 /** Current login progress, safe to return to the browser. */
 export const ibkrLoginStatus = currentState.pipe(
   Effect.map((state) => state.status)
+);
+
+/** The session's state, failing unless the login has finished. */
+export const authenticatedIbkrState = Effect.gen(
+  function* authenticatedIbkrState() {
+    const state = yield* currentState;
+    if (state.status.state !== "authenticated") {
+      return yield* Effect.fail(
+        ibkrLoginError("Unauthorized", "IBKR login: not authenticated")
+      );
+    }
+    return state;
+  }
 );
 
 const currentUsername = Effect.gen(function* currentUsername() {
@@ -193,7 +220,7 @@ const authAction = Effect.fn("IbkrLogin.action")(function* authAction(
   const parsed = yield* Schema.decodeUnknownEffect(AuthResponseSchema)(
     body
   ).pipe(Effect.mapError(() => unexpected));
-  if (parsed.ERROR || parsed.error || isTrue(parsed.reached_max_login)) {
+  if (parsed.ERROR || parsed.error || parsed.reached_max_login) {
     return yield* Effect.fail(
       ibkrLoginError(
         "Rejected",
@@ -206,15 +233,38 @@ const authAction = Effect.fn("IbkrLogin.action")(function* authAction(
 
 /** Lowercase hex of SHA-256, for IDs stable per user. */
 const sha256Hex = (text: string) =>
-  Effect.promise(async () => {
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(text)
+  Effect.promise(() =>
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  ).pipe(Effect.map((digest) => bytesToHex(new Uint8Array(digest))));
+
+/**
+ * Sets cookies as IBKR's login scripts do: for the auth host's parent domain
+ * (the host minus its first label), so every IBKR host under it receives them.
+ */
+const setScriptCookies = Effect.fn("IbkrLogin.setScriptCookies")(
+  function* setScriptCookies(
+    authUrl: string,
+    cookies: readonly (readonly [name: string, value: string])[]
+  ) {
+    const session = yield* IbkrBrowserSession;
+    const { hostname } = new URL(authUrl);
+    const domain = hostname.slice(hostname.indexOf("."));
+    const now = yield* Clock.currentTimeMillis;
+    yield* Ref.update(
+      session.cookies,
+      Cookies.mergeIntoArray(
+        authUrl,
+        Cookies.fromSetCookie(
+          cookies.map(
+            ([name, value]) =>
+              `${name}=${value}; Domain=${domain}; Path=/; Secure; SameSite=None`
+          )
+        ),
+        now
+      )
     );
-    return Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
-  });
+  }
+);
 
 /**
  * The cookies IBKR's login script sets before it authenticates: `SBID`,
@@ -226,36 +276,18 @@ const sha256Hex = (text: string) =>
  */
 const setDeviceCookies = Effect.fn("IbkrLogin.setDeviceCookies")(
   function* setDeviceCookies(authServer: string) {
-    const session = yield* IbkrBrowserSession;
-    const { status } = yield* Ref.get(session.state);
+    const { status } = yield* currentState;
     const now = yield* Clock.currentTimeMillis;
     const hex = yield* sha256Hex(`bread-device:${status.username ?? ""}`);
     const id = hex.slice(0, 8);
     const mac = ["16", ...(hex.slice(8, 18).match(/../gu) ?? [])]
       .join(":")
       .toUpperCase();
-    const deviceInfo = btoa(JSON.stringify({ id, mac }));
-    const sbid = `${hex.slice(18, 30)}${now.toString(36)}`;
-    const tabId = `AM-${hex.slice(30, 42)}-${now}`;
-    // Same domain IBKR's script uses: the auth host minus its first label.
-    const domain = authServer.slice(authServer.indexOf("."));
-    yield* Ref.update(
-      session.cookies,
-      Cookies.mergeIntoArray(
-        `https://${authServer}/`,
-        Cookies.fromSetCookie(
-          [
-            ["SBID", sbid],
-            ["TABID", tabId],
-            ["device.info", deviceInfo],
-          ].map(
-            ([name, value]) =>
-              `${name}=${value}; Domain=${domain}; Path=/; Secure; SameSite=None`
-          )
-        ),
-        now
-      )
-    );
+    yield* setScriptCookies(`https://${authServer}/`, [
+      ["SBID", `${hex.slice(18, 30)}${now.toString(36)}`],
+      ["TABID", `AM-${hex.slice(30, 42)}-${now}`],
+      ["device.info", btoa(JSON.stringify({ id, mac }))],
+    ]);
   }
 );
 
@@ -305,58 +337,50 @@ const decodeJsonText = Schema.decodeUnknownOption(
 );
 
 /**
- * One Client Portal API call on the host that served the login (e.g.
- * www.interactivebrokers.ie), as IBKR's web app makes it. `path` is relative to
- * `/portal.proxy/v1/portal/`. IBKR's status and body are returned unchanged;
- * a successful call extends the session like the web app's activity does.
+ * One authenticated call on the host that served the login (e.g.
+ * www.interactivebrokers.ie), under `prefix` and with the headers IBKR's web
+ * app sends. IBKR's status and body are returned unchanged.
  */
-export const ibkrPortalRequest = Effect.fn("IbkrLogin.portalRequest")(
-  function* ibkrPortalRequest(
-    method: IbkrPortalMethod,
-    path: string,
-    jsonBody: string
-  ) {
+const sessionRequest = Effect.fn("IbkrLogin.sessionRequest")(
+  function* sessionRequest(options: {
+    readonly prefix: string;
+    readonly path: string;
+    readonly method: IbkrPortalMethod;
+    readonly jsonBody?: string;
+    readonly headers?: Readonly<Record<string, string | undefined>>;
+  }) {
     const session = yield* IbkrBrowserSession;
-    const { status, dispatcher } = yield* Ref.get(session.state);
-    if (status.state !== "authenticated") {
-      return yield* Effect.fail(
-        ibkrLoginError("Unauthorized", "IBKR login: not authenticated")
-      );
-    }
-    const base = new URL("/portal.proxy/v1/portal/", dispatcher);
-    const url = new URL(path, base);
+    const { dispatcher } = yield* authenticatedIbkrState;
+    const base = new URL(options.prefix, dispatcher);
+    const url = new URL(options.path, base);
     if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
       return yield* Effect.fail(
-        ibkrLoginError("BadRequest", "IBKR request: invalid portal path")
+        ibkrLoginError("BadRequest", "IBKR request: invalid path")
       );
     }
-    let request = HttpClientRequest.make(method)(url.href).pipe(
+    const request = HttpClientRequest.make(options.method)(url.href).pipe(
       HttpClientRequest.setHeaders({
         Accept: "application/json",
         Origin: base.origin,
         Referer: `${base.origin}/portal/`,
+        ...options.headers,
       })
     );
-    if (jsonBody) {
-      request = HttpClientRequest.bodyText(
-        request,
-        jsonBody,
-        "application/json"
-      );
-    }
-    const response = yield* ibkrBrowserSend(session.cookies, request);
+    const response = yield* ibkrBrowserSend(
+      session.cookies,
+      options.jsonBody
+        ? HttpClientRequest.bodyText(
+            request,
+            options.jsonBody,
+            "application/json"
+          )
+        : request
+    );
     const text = yield* response.text.pipe(
       Effect.mapError(() =>
-        ibkrLoginError("Upstream", "IBKR portal: unreadable response")
+        ibkrLoginError("Upstream", "IBKR request: unreadable response")
       )
     );
-    if (response.status < 400) {
-      const now = yield* Clock.currentTimeMillis;
-      yield* updateState((current) => ({
-        ...current,
-        status: { ...current.status, expiresAt: now + authenticatedWindowMs },
-      }));
-    }
     return {
       status: response.status,
       body: Option.getOrElse(decodeJsonText(text), () => text),
@@ -364,8 +388,33 @@ export const ibkrPortalRequest = Effect.fn("IbkrLogin.portalRequest")(
   }
 );
 
-/** One per server process, as IBKR's web app keeps one per page load. */
-const researchSessionId = crypto.randomUUID();
+/**
+ * One Client Portal API call, as IBKR's web app makes it. `path` is relative
+ * to `/portal.proxy/v1/portal/`. A successful call extends the session like
+ * the web app's activity does.
+ */
+export const ibkrPortalRequest = Effect.fn("IbkrLogin.portalRequest")(
+  function* ibkrPortalRequest(
+    method: IbkrPortalMethod,
+    path: string,
+    jsonBody?: string
+  ) {
+    const response = yield* sessionRequest({
+      prefix: "/portal.proxy/v1/portal/",
+      path,
+      method,
+      jsonBody,
+    });
+    if (response.status < 400) {
+      const now = yield* Clock.currentTimeMillis;
+      yield* updateState((current) => ({
+        ...current,
+        status: { ...current.status, expiresAt: now + authenticatedWindowMs },
+      }));
+    }
+    return response;
+  }
+);
 
 const decodeSsoUser = Schema.decodeUnknownOption(
   Schema.Struct({ USER_ID: Schema.Number })
@@ -382,27 +431,16 @@ const ensureUserIdCookie = Effect.gen(function* ensureUserIdCookie() {
   if (cookies.some((cookie) => cookie.name === "USERID")) {
     return;
   }
-  const validated = yield* ibkrPortalRequest("GET", "sso/validate", "");
+  const validated = yield* ibkrPortalRequest("GET", "sso/validate");
   const user = decodeSsoUser(validated.body);
-  if (user._tag === "None") {
+  if (Option.isNone(user)) {
     return;
   }
-  const { authenticator } = yield* Ref.get(session.state);
-  const { hostname } = new URL(authenticator);
-  const domain = hostname.slice(hostname.indexOf("."));
-  const now = yield* Clock.currentTimeMillis;
-  yield* Ref.update(
-    session.cookies,
-    Cookies.mergeIntoArray(
-      authenticator,
-      Cookies.fromSetCookie([
-        `USERID=${user.value.USER_ID}; Domain=${domain}; Path=/; Secure; SameSite=None`,
-      ]),
-      now
-    )
-  );
+  const { authenticator } = yield* currentState;
+  yield* setScriptCookies(authenticator, [
+    ["USERID", String(user.value.USER_ID)],
+  ]);
 });
-let researchRequestId = 0;
 
 const decodeBrokerageSession = Schema.decodeUnknownOption(
   Schema.Struct({ sessionId: Schema.String })
@@ -413,14 +451,21 @@ const decodeBrokerageSession = Schema.decodeUnknownOption(
  * cookie, and the brokerage session's ID (`sessionId` from
  * `iserver/accounts`), which IBKR's web app sends as `x-ccp-session-id`.
  * The Market Screener's queries fail without it ("Missing required
- * information"). Empty when the brokerage session isn't open.
+ * information"). Undefined when the brokerage session isn't open.
  */
 const hmdsSessionId = Effect.gen(function* hmdsSessionId() {
   yield* ensureUserIdCookie;
-  const accounts = yield* ibkrPortalRequest("GET", "iserver/accounts", "");
-  const session = decodeBrokerageSession(accounts.body);
-  return session._tag === "Some" ? session.value.sessionId : "";
+  const accounts = yield* ibkrPortalRequest("GET", "iserver/accounts");
+  return Option.getOrUndefined(decodeBrokerageSession(accounts.body))
+    ?.sessionId;
 });
+
+/**
+ * One per server instance, as IBKR's web app keeps one per page load. Made on
+ * first use: Workers allow no random values while a module loads.
+ */
+let researchSessionId: string | undefined;
+let researchRequestId = 0;
 
 /**
  * Calls an allowlisted research namespace under `/tws.proxy/` using the
@@ -432,89 +477,44 @@ export const ibkrResearchRequest = Effect.fn("IbkrLogin.researchRequest")(
     namespace: IbkrResearchNamespace,
     path: string,
     method: "GET" | "POST" = "GET",
-    jsonBody = ""
+    jsonBody?: string
   ) {
     const session = yield* IbkrBrowserSession;
-    const { status, dispatcher, service } = yield* Ref.get(session.state);
-    if (status.state !== "authenticated") {
-      return yield* Effect.fail(
-        ibkrLoginError("Unauthorized", "IBKR login: not authenticated")
-      );
-    }
-    const base = new URL(`/tws.proxy/${namespace}/`, dispatcher);
-    const url = new URL(path, base);
-    if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) {
-      return yield* Effect.fail(
-        ibkrLoginError("BadRequest", "IBKR request: invalid research path")
-      );
-    }
+    const { service } = yield* authenticatedIbkrState;
     const ccpSessionId =
       namespace === "hmds" ? yield* hmdsSessionId : undefined;
     const cookies = yield* Ref.get(session.cookies);
     const sessionKey = cookies.find((cookie) => cookie.name === "XYZAB")?.value;
+    researchSessionId ??= crypto.randomUUID();
     researchRequestId += 1;
-    let request = HttpClientRequest.make(method)(url.href).pipe(
-      HttpClientRequest.setHeaders({
-        Accept: "application/json",
-        Origin: base.origin,
-        Referer: `${base.origin}/portal/`,
+    return yield* sessionRequest({
+      prefix: `/tws.proxy/${namespace}/`,
+      path,
+      method,
+      jsonBody,
+      // Effect drops headers whose value is undefined.
+      headers: {
         "x-session-id": researchSessionId,
         "x-request-id": String(researchRequestId),
         "X-SERVICE": service,
         "x-embedded-in": "web",
         "x-client-label": "IB",
-      })
-    );
-    if (ccpSessionId) {
-      request = HttpClientRequest.setHeader(
-        request,
-        "x-ccp-session-id",
-        ccpSessionId
-      );
-    }
-    if (jsonBody) {
-      request = HttpClientRequest.bodyText(
-        request,
-        jsonBody,
-        "application/json"
-      );
-    }
-    if (sessionKey) {
-      request = HttpClientRequest.setHeader(request, "X-XYZAB", sessionKey);
-    }
-    const response = yield* ibkrBrowserSend(session.cookies, request);
-    const text = yield* response.text.pipe(
-      Effect.mapError(() =>
-        ibkrLoginError("Upstream", "IBKR research: unreadable response")
-      )
-    );
-    return {
-      status: response.status,
-      body: Option.getOrElse(decodeJsonText(text), () => text),
-    };
+        "x-ccp-session-id": ccpSessionId,
+        "X-XYZAB": sessionKey,
+      },
+    });
   }
 );
-
-const warmUpPortalSession = ibkrPortalRequest("GET", "sso/validate", "");
 
 /** Adds the client-derived session cookies, then completes the portal handoff. */
 const finish = Effect.gen(function* finish() {
   const session = yield* IbkrBrowserSession;
   const state = yield* Ref.get(session.state);
   const now = yield* Clock.currentTimeMillis;
-  // Same domain IBKR's script uses: the auth host minus its first label.
-  const { hostname } = new URL(state.authenticator);
-  const domain = hostname.slice(hostname.indexOf("."));
-  const derived = Cookies.fromSetCookie(
-    ["XYZAB", `XYZAB_${state.service}`].map(
-      (name) =>
-        `${name}=${state.sessionKey}; Domain=${domain}; Path=/; Secure; SameSite=None`
-    )
-  );
-  yield* Ref.update(
-    session.cookies,
-    Cookies.mergeIntoArray(state.authenticator, derived, now)
-  );
+  yield* setScriptCookies(state.authenticator, [
+    ["XYZAB", state.sessionKey],
+    [`XYZAB_${state.service}`, state.sessionKey],
+  ]);
   const handoff = yield* ibkrBrowserRequest(
     session.cookies,
     state.dispatcher,
@@ -541,7 +541,7 @@ const finish = Effect.gen(function* finish() {
   // load-balancer cookie that iserver/ and portfolio/ calls require ("No valid
   // lb cookie"). Doing it here saves that cookie with the login, so the
   // dashboard's parallel first calls don't race to get it.
-  yield* Effect.ignore(warmUpPortalSession);
+  yield* Effect.ignore(ibkrPortalRequest("GET", "sso/validate"));
 });
 
 /** Moves to the second factor; a single offered factor is selected automatically. */
@@ -565,7 +565,7 @@ export const selectIbkrFactor = Effect.fn("IbkrLogin.selectFactor")(
       SF: id,
       VERSION: "1",
     });
-    if (!isTrue(result.push_sent)) {
+    if (!result.push_sent) {
       return yield* Effect.fail(
         ibkrLoginError("Upstream", "IBKR login: push approval was not sent")
       );
@@ -709,7 +709,7 @@ export const pollIbkrApproval = Effect.gen(function* pollIbkrApproval() {
     PUSH: "true",
     counter: String(counter),
   });
-  if (isTrue(result.auth_res)) {
+  if (result.auth_res) {
     yield* finish;
   }
   return yield* ibkrLoginStatus;

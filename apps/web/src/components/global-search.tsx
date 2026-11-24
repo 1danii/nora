@@ -37,9 +37,9 @@ const SEARCH_INTERVAL = 1000;
 const OPEN_HOTKEY = "Mod+K";
 
 const styles = stylex.create({
-  // The large input's box, as a button: it opens the palette rather than
-  // taking text itself. A pill, unlike other inputs: a one-off for the
-  // header's search.
+  // An input's box, as a button: it opens the palette rather than taking
+  // text itself. A 40px pill, unlike other inputs: a one-off for the header's
+  // search.
   trigger: {
     borderRadius: radius.full,
     borderWidth: 0,
@@ -61,7 +61,7 @@ const styles = stylex.create({
     },
     transitionProperty: "box-shadow",
     transitionTimingFunction: "ease-out",
-    height: stylex.env.spacing(11),
+    height: stylex.env.spacing(10),
     minWidth: 0,
     width: "100%",
   },

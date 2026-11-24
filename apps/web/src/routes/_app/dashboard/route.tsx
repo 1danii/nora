@@ -15,6 +15,8 @@ import { GlobalSearch } from "@/components/global-search";
 import { ProfileMenu } from "@/components/profile-menu";
 import { QueryBoundary } from "@/components/query-boundary";
 import { prefetchAccountHeader } from "@/lib/ibkr-account-queries";
+import { ibkrBrokerageQuery } from "@/lib/ibkr-asset-queries";
+import { useIbkrKeepAlive } from "@/lib/ibkr-brokerage";
 import { ibkrSessionQuery } from "@/lib/ibkr-login-queries";
 import { useIbkrSignOut } from "@/lib/ibkr-sign-out";
 import { text } from "@/styles/text";
@@ -28,13 +30,16 @@ const styles = stylex.create({
     maxWidth: stylex.env.spacing(360),
   },
   // Three columns with equal sides, so the search sits in the page's centre
-  // whatever the links beside it take.
+  // whatever the links beside it take. A side never gets narrower than its
+  // content: when the balance needs more room, the search gives it up
+  // instead of the balance running over it.
   nav: {
     gap: stylex.env.spacing(6),
     paddingBlock: stylex.env.spacing(6),
     alignItems: "center",
     display: "grid",
-    gridTemplateColumns: "1fr minmax(0, 480px) 1fr",
+    gridTemplateColumns:
+      "minmax(max-content, 1fr) minmax(0, 480px) minmax(max-content, 1fr)",
   },
   start: {
     gap: stylex.env.spacing(6),
@@ -43,7 +48,7 @@ const styles = stylex.create({
   },
   // The homepage logo's height, without the wordmark.
   logo: {
-    height: 20.625,
+    height: 24,
   },
   items: {
     margin: 0,
@@ -168,9 +173,6 @@ const DashboardNav = () => (
             <Link
               {...stylex.props(text[14], styles.item)}
               to="/dashboard/explore"
-              // Its loader can open the brokerage session, which may sign out
-              // TWS or the mobile app, so it waits for a click.
-              preload={false}
             >
               Explore
             </Link>
@@ -182,6 +184,17 @@ const DashboardNav = () => (
     <AccountEnd />
   </header>
 );
+
+/** Keeps the IBKR session alive while signed in; nothing once it has ended. */
+const SessionUpkeep = () => {
+  const { data: session } = useSuspenseQuery(ibkrSessionQuery);
+  return session.state === "authenticated" ? <KeepAlive /> : null;
+};
+
+const KeepAlive = () => {
+  useIbkrKeepAlive();
+  return null;
+};
 
 /**
  * Leaves for login as soon as the session ends, e.g. it expires or another
@@ -232,10 +245,14 @@ export const Route = createFileRoute("/_app/dashboard")({
   // Not awaited: the header's balance loads beside the page, never before it.
   loader: ({ context }) => {
     prefetchAccountHeader(context.queryClient);
+    // The trading session, opened on load as the Client Portal does, but
+    // taken over from TWS or IBKR Mobile if they hold it.
+    void context.queryClient.prefetchQuery(ibkrBrokerageQuery);
   },
   component: () => (
     <>
       <DemoBanner />
+      <SessionUpkeep />
       <div {...stylex.props(styles.container)}>
         <DashboardNav />
         <QueryBoundary>

@@ -1,4 +1,4 @@
-/** Hex, byte and BigInt helpers for the SRP login, on Web Crypto-free primitives. */
+/** Hex, byte and BigInt helpers for the SRP login. */
 
 export const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");

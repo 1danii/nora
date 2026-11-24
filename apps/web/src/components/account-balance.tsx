@@ -17,8 +17,7 @@ import {
   ibkrLedgerQuery,
   ibkrPnlQuery,
 } from "@/lib/ibkr-account-queries";
-import { ibkrBrokerageQuery } from "@/lib/ibkr-asset-queries";
-import { ibkrSessionQuery } from "@/lib/ibkr-login-queries";
+import { useBrokerageAccess } from "@/lib/ibkr-brokerage";
 import { text } from "@/styles/text";
 import { breakpoints, colors, radius } from "@/styles/tokens.stylex";
 
@@ -124,7 +123,7 @@ const styles = stylex.create({
 });
 
 /** One summary figure in the account's currency; undefined when IBKR left it out. */
-const summaryAmount = (
+export const summaryAmount = (
   summary: IbkrAccountSummary,
   key: string,
   fallbackCurrency: string | undefined
@@ -193,43 +192,27 @@ const CashByCurrency = ({ accountId }: { accountId: string }) => {
 };
 
 /**
- * Whether today's profit and loss will show: once the brokerage session is
- * open (it's an `iserver` call). Opening it can sign out TWS or the mobile
- * app, so the header never opens it itself: it waits for a page that does.
- * The demo has nothing to sign out, so it always opens it. Only reads the
- * cache, so the loading skeleton can ask too.
- */
-const usePnlExpected = () => {
-  const session = useQuery({ ...ibkrSessionQuery, enabled: false });
-  const brokerage = useQuery({ ...ibkrBrokerageQuery, enabled: false });
-  return session.data?.demo === true || brokerage.data !== undefined;
-};
-
-/**
  * Today's profit and loss: `expected` while it's loading or shown, so its
- * place is held by a skeleton rather than popping in after the rest.
+ * place is held by a skeleton rather than popping in after the rest. It's an
+ * `iserver` call, so it waits for the brokerage session the dashboard opens,
+ * and drops out while another platform holds it.
  */
 const useTodaysPnl = (accountId: string) => {
-  const expected = usePnlExpected();
-  const { data: session } = useSuspenseQuery(ibkrSessionQuery);
-  const brokerage = useQuery({
-    ...ibkrBrokerageQuery,
-    enabled: session.demo === true,
-  });
+  const brokerage = useBrokerageAccess();
   const pnl = useQuery({
     ...ibkrPnlQuery(accountId),
-    enabled: brokerage.data !== undefined,
+    enabled: brokerage.ready,
   });
   // A failure, or no row for the account, drops the figure.
-  const failed = brokerage.isError || pnl.isError || pnl.data === null;
+  const failed = pnl.isError || pnl.data === null;
   return {
-    expected: expected && !failed,
+    expected: brokerage.expected && !failed,
     value: pnl.data ?? undefined,
   };
 };
 
 /** The day change's shape while it loads. */
-const changeSample = <ChangeFigures change={0} base={1} />;
+const changeSample = <ChangeFigures change={0} ratio={0} />;
 
 const Balance = ({
   accountId,
@@ -248,7 +231,10 @@ const Balance = ({
     pnl.value !== undefined &&
     total !== undefined &&
     total - pnl.value !== 0 ? (
-      <ChangeFigures change={pnl.value} base={total - pnl.value} />
+      <ChangeFigures
+        change={pnl.value}
+        ratio={pnl.value / (total - pnl.value)}
+      />
     ) : undefined;
   const today = pnl.expected ? (
     <Skeleton loading={change === undefined} label="Loading today's change">
@@ -314,7 +300,7 @@ const BalanceError = ({ reset }: ErrorComponentProps) => (
 const BalanceSkeleton = () => (
   <div {...stylex.props(styles.trigger)}>
     <Stat secondary label="Cash" amount="$0,000.00" />
-    {usePnlExpected() ? (
+    {useBrokerageAccess().expected ? (
       <Stat secondary label="Today" amount={changeSample} />
     ) : null}
     <Stat label="Total value" amount="$00,000.00" />

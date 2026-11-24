@@ -17,14 +17,6 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Reserve the scrollbar's space so layouts don't shift when a page starts
-     or stops scrolling. No effect with overlay scrollbars (macOS default, mobile).
-     Landing pages opt out: their fixed full-bleed backgrounds would leave an
-     empty strip where the gutter is. */
-  html:not(:has([data-landing])) {
-    scrollbar-gutter: stable;
-  }
-
   /* No vertical rubber-band bounce on desktop. Touch-first devices keep the default,
      so pull-to-refresh still works. `pointer` is the primary input only, so
      hybrid touch laptops need their own testing. `none` also turns off vertical scroll

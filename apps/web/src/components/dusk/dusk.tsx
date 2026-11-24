@@ -66,7 +66,9 @@ export const duskDefaults = {
     grainBlend: "overlay",
     grainSize: 1.2,
     halation: 0.7,
-    softness: 2,
+    // A blur over these smooth bands is invisible but costs a full-screen
+    // filter pass on every frame; 0 skips the filter entirely.
+    softness: 0,
     vignette: 0.8,
   },
   gradient: {
@@ -121,27 +123,18 @@ const styles = stylex.create({
     inset: "-16px",
     position: "absolute",
   },
-  horizon: (width: number, height: number, y: number) => ({
+  // The gradient's box: the sky's bands, and the stage children are laid
+  // out in.
+  horizon: (width: string, height: string, y: number, shift: string) => ({
     position: "absolute",
     transform: "translate(-50%, -50%)",
-    height: `${height}vh`,
+    height,
     left: "50%",
-    top: `${y}%`,
-    width: `${width}vw`,
+    top: `calc(${y}% + ${shift})`,
+    width,
   }),
-  dusk: (
-    width: number,
-    height: number,
-    y: number,
-    backgroundImage: string
-  ) => ({
+  bands: (backgroundImage: string) => ({
     backgroundImage,
-    position: "absolute",
-    transform: "translate(-50%, -50%)",
-    height: `${height}vh`,
-    left: "50%",
-    top: `${y}%`,
-    width: `${width}vw`,
   }),
   halation: (top: number, color: string, opacity: number) => ({
     backgroundImage: `radial-gradient(ellipse 50% 50% at 50% 50%, ${color}, transparent)`,
@@ -155,13 +148,16 @@ const styles = stylex.create({
     top: `${top}%`,
     width: "80%",
   }),
-  vignette: (strength: number) => ({
+  // Darkens the edges into a halo around the sky, fading out over the dark
+  // ground below it: there it only stepped the near-black into bands.
+  vignette: (strength: number, maskImage: string) => ({
     inset: 0,
     backgroundImage: `radial-gradient(ellipse 75% 75% at 50% 50%, transparent 40%, rgb(0 0 0 / ${strength}))`,
+    maskImage,
     position: "absolute",
   }),
   grain: (backgroundImage: string, blend: string, opacity: number) => ({
-    inset: "-25%",
+    inset: 0,
     backgroundImage,
     mixBlendMode: blend,
     opacity,
@@ -169,6 +165,14 @@ const styles = stylex.create({
     position: "absolute",
   }),
 });
+
+// Below this viewport width the sky stops shrinking: narrow screens show its
+// middle, cropped, instead of a squeezed sunset.
+const SKY_MIN_VIEWPORT = 1280;
+
+/** The sky's width as a CSS length: `width`vw, but never narrower than it is at 1280px. */
+export const skyWidth = (g: DuskSettings["gradient"]) =>
+  `max(${g.width}vw, ${(g.width * SKY_MIN_VIEWPORT) / 100}px)`;
 
 /** The sky's top-to-bottom color bands, as a CSS gradient. */
 export const duskBands = (g: DuskSettings["gradient"]) => {
@@ -201,11 +205,43 @@ export const easedFade = (solid: number, end = 100) =>
     return `rgb(0 0 0 / ${alpha}) ${solid + (end - solid) * t}%`;
   });
 
+/** `easedFade` between two CSS lengths, as gradient stops. */
+export const easedFadeBetween = (from: string, to: string) =>
+  Array.from({ length: SMOOTH_STEPS + 1 }, (_, step) => {
+    const t = step / SMOOTH_STEPS;
+    const alpha = 1 - smoothstep(t);
+    return `rgb(0 0 0 / ${alpha}) calc(${from} + (${to} - ${from}) * ${t})`;
+  });
+
+/**
+ * Where a point of the sky (`stop`, in % of its height) falls on screen, as a
+ * CSS length from the top. Dusk's stage is the screen grown 16px on every
+ * side, and the sky is centred at `y`% of it. Terms that come out as zero are
+ * left out: with the defaults, the sky's middle is at 50vh.
+ */
+export const skyPoint = (
+  g: DuskSettings["gradient"],
+  height: string,
+  stop: number
+) => {
+  const centrePx = (g.y / 100) * 32 - 16;
+  const offset = (stop - 50) / 100;
+  const terms = [
+    `${g.y}vh`,
+    centrePx === 0 ? null : `${centrePx}px`,
+    offset === 0 ? null : `${offset} * ${height}`,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  // In parentheses, so it can be subtracted.
+  return `(${terms})`;
+};
+
 /**
  * The round fade-out of the sky, as a CSS mask in gradient-box coordinates.
  * `scaleWidth`/`scaleHeight` shrink it for the enter animation.
  */
-export const duskMask = (
+const duskMask = (
   g: DuskSettings["gradient"],
   mask: DuskSettings["mask"],
   scaleWidth = 1,
@@ -300,16 +336,28 @@ const MotionStylex = ({
 /** Full-screen dusk gradient with film grain and an enter animation. */
 export const Dusk = ({
   children,
+  height,
   replayKey = 0,
   settings,
+  shift = "0px",
 }: {
   /**
    * Rendered over the sky but under the vignette and grain, inside a box
    * matching the gradient, so `top: <stop>%` lines up with that color stop.
    */
   children?: ReactNode;
+  /**
+   * The gradient's height as a CSS length, in place of `gradient.height`vh,
+   * e.g. to keep it in proportion with content on narrow screens.
+   */
+  height?: string;
   replayKey?: number;
   settings: DuskSettings;
+  /**
+   * A CSS length that moves the sky and its children down together, e.g. to
+   * make room for content above them on short screens.
+   */
+  shift?: string;
 }) => {
   const { enter, film, gradient, mask } = settings;
   const progress = useEnterProgress(
@@ -322,6 +370,9 @@ export const Dusk = ({
   );
 
   const g = gradient;
+  const skyHeight = height ?? `${g.height}vh`;
+  // Where the dark ground starts, on screen.
+  const ground = `(${skyPoint(g, skyHeight, g.bottomStop)} + ${shift})`;
   // Plain top-to-bottom bands; only the mask is round, centred on the glow
   // so the bands fade out in a dome around the horizon.
   const bands = duskBands(g);
@@ -330,7 +381,7 @@ export const Dusk = ({
     return duskMask(g, mask, frame.maskWidth, frame.maskHeight);
   });
   const backdrop = `linear-gradient(in ${g.interpolation}, ${g.top}, ${g.bottom})`;
-  const filter = `blur(${film.softness}px)`;
+  const filter = film.softness > 0 ? `blur(${film.softness}px)` : "none";
   const fadeGrainFilter =
     film.fadeGrain === "none" ? "" : `url(#dusk-${film.fadeGrain})`;
   const enterOpacity = useTransform(
@@ -361,7 +412,10 @@ export const Dusk = ({
         >
           <MotionStylex
             style={{ maskImage }}
-            sx={styles.dusk(g.width, g.height, g.y, bands)}
+            sx={[
+              styles.horizon(skyWidth(g), skyHeight, g.y, shift),
+              styles.bands(bands),
+            ]}
           >
             <div
               {...stylex.props(
@@ -372,15 +426,26 @@ export const Dusk = ({
         </MotionStylex>
       </div>
       <div {...stylex.props(styles.stage)}>
-        <div {...stylex.props(styles.horizon(g.width, g.height, g.y))}>
+        <div
+          {...stylex.props(styles.horizon(skyWidth(g), skyHeight, g.y, shift))}
+        >
           {children}
         </div>
       </div>
-      <FadeGrainFilters
-        amount={film.fadeGrainAmount}
-        size={film.fadeGrainSize}
+      {film.fadeGrain === "none" ? null : (
+        <FadeGrainFilters
+          amount={film.fadeGrainAmount}
+          size={film.fadeGrainSize}
+        />
+      )}
+      <div
+        {...stylex.props(
+          styles.vignette(
+            film.vignette,
+            `linear-gradient(${easedFadeBetween(ground, "100%").join(", ")})`
+          )
+        )}
       />
-      <div {...stylex.props(styles.vignette(film.vignette))} />
       <div
         {...stylex.props(
           styles.grain(noise(film.grainSize), film.grainBlend, film.grain)

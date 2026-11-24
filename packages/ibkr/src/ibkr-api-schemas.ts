@@ -9,12 +9,6 @@ import { Schema } from "effect";
 const optionalNumber = Schema.optional(Schema.NullOr(Schema.Number));
 const optionalString = Schema.optional(Schema.NullOr(Schema.String));
 
-export const IbkrLiveSessionTokenResponseSchema = Schema.Struct({
-  diffie_hellman_response: Schema.String,
-  live_session_token_signature: Schema.String,
-  live_session_token_expiration: Schema.Number,
-});
-
 export const IbkrPortfolioAccountSchema = Schema.Struct({
   accountId: Schema.String,
   currency: optionalString,
@@ -27,7 +21,13 @@ export type IbkrPortfolioAccount = typeof IbkrPortfolioAccountSchema.Type;
 export const IbkrPositionSchema = Schema.Struct({
   acctId: optionalString,
   conid: Schema.Number,
+  /**
+   * The symbol, with " @EXCHANGE" after it when the position isn't on the
+   * primary US listing, e.g. "CSG1 @AEB". Live positions carry no `ticker`
+   * or `name`; `trsrv/secdef` has those.
+   */
   contractDesc: optionalString,
+  description: optionalString,
   position: Schema.Number,
   mktPrice: optionalNumber,
   mktValue: optionalNumber,
@@ -36,7 +36,10 @@ export const IbkrPositionSchema = Schema.Struct({
   avgPrice: optionalNumber,
   realizedPnl: optionalNumber,
   unrealizedPnl: optionalNumber,
+  /** Today's gain or loss, in the position's currency. */
+  dailyPnl: optionalNumber,
   assetClass: optionalString,
+  secType: optionalString,
   ticker: optionalString,
   name: optionalString,
   fullName: optionalString,
@@ -100,6 +103,53 @@ export const IbkrPnlSchema = Schema.Struct({
   ),
 });
 export type IbkrPnl = typeof IbkrPnlSchema.Type;
+
+/** One series of `pa/performance`, a value per date in `dates`. */
+const IbkrPerformanceSeriesSchema = Schema.Struct({
+  /** `yyyyMMdd`, oldest first. */
+  dates: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  /** `D`, `W` or `M`: how far apart the dates are. */
+  freq: optionalString,
+  data: Schema.optional(
+    Schema.NullOr(
+      Schema.Array(
+        Schema.Struct({
+          id: optionalString,
+          baseCurrency: optionalString,
+          /** The account's value at each date's close (`nav` only). */
+          navs: Schema.optional(
+            Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Number)))
+          ),
+          /** The return since the period's start, as a fraction (`cps` only). */
+          returns: Schema.optional(
+            Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Number)))
+          ),
+          /** The value before the first date. */
+          startNAV: Schema.optional(
+            Schema.NullOr(
+              Schema.Struct({ date: optionalString, val: optionalNumber })
+            )
+          ),
+        })
+      )
+    )
+  ),
+});
+
+/**
+ * `POST pa/performance` with `{ acctIds, period }`: the account's value over
+ * the period (`nav`) and its time-weighted return (`cps`, cumulative), so
+ * deposits and withdrawals don't count as gains. A portal call: no
+ * brokerage session needed.
+ */
+export const IbkrPerformanceSchema = Schema.Struct({
+  currencyType: optionalString,
+  nav: Schema.optional(Schema.NullOr(IbkrPerformanceSeriesSchema)),
+  cps: Schema.optional(Schema.NullOr(IbkrPerformanceSeriesSchema)),
+  /** The return method, e.g. "TWR". */
+  pm: optionalString,
+});
+export type IbkrPerformance = typeof IbkrPerformanceSchema.Type;
 
 /** `iserver/marketdata/snapshot`: field IDs (e.g. "31" last price) map to strings. */
 export const IbkrMarketSnapshotSchema = Schema.Array(

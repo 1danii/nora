@@ -3,7 +3,7 @@ import type { IbkrContractSearch } from "@nora/ibkr/api-schemas";
 import { queryOptions } from "@tanstack/react-query";
 import { Option, Schema } from "effect";
 
-import { ibkrBrokerageQuery, listingSlug } from "@/lib/ibkr-asset-queries";
+import { requireBrokerage, listingSlug } from "@/lib/ibkr-asset-queries";
 import { requestIbkrPortal } from "@/lib/ibkr-login-queries";
 
 /** One row of the search: a contract, as the palette shows and links it. */
@@ -108,7 +108,7 @@ export const contractSearchQuery = (term: string) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "search", term],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const response = await requestIbkrPortal(
         "GET",
         `iserver/secdef/search?symbol=${encodeURIComponent(term)}&pattern=true`

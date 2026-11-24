@@ -315,6 +315,8 @@ export const makeIbkrLoginRoutes = (options: {
               }
               const snapshot = yield* requireSnapshot;
               const path = request.url.slice("/api/ibkr/portal/".length);
+              const body =
+                method === "GET" ? "" : yield* readPassthroughBody(request);
               if (snapshot.status.demo) {
                 // Answered from fixtures after a network-like wait; activity
                 // extends the session.
@@ -322,7 +324,7 @@ export const makeIbkrLoginRoutes = (options: {
                   Duration.millis(options.demoLatencyMs ?? 300)
                 );
                 const now = yield* Clock.currentTimeMillis;
-                const response = ibkrDemoPortalResponse(method, path);
+                const response = ibkrDemoPortalResponse(method, path, body);
                 return {
                   ...(yield* persisted({
                     result: response,
@@ -331,8 +333,6 @@ export const makeIbkrLoginRoutes = (options: {
                   status: response.status,
                 };
               }
-              const body =
-                method === "GET" ? "" : yield* readPassthroughBody(request);
               const step = yield* runInSession(
                 snapshot,
                 ibkrPortalRequest(method, path, body)

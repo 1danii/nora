@@ -1,9 +1,13 @@
-import { Effect, Option, Queue, Ref, Schema, Stream } from "effect";
+import { Clock, Effect, Option, Queue, Ref, Schema, Stream } from "effect";
 import type { Cookies } from "effect/http";
 
 import { isAllowedIbkrUrl } from "./ibkr-browser-http";
-import { IbkrBrowserSession } from "./ibkr-browser-login";
+import {
+  authenticatedIbkrState,
+  IbkrBrowserSession,
+} from "./ibkr-browser-login";
 import { ibkrLoginError } from "./ibkr-login-error";
+import type { IbkrLoginError } from "./ibkr-login-error";
 
 /**
  * Live market data from IBKR's WebSocket, as IBKR's own web app streams it:
@@ -119,6 +123,45 @@ export const ibkrSystemNote = (text: string) => {
     .join(" ");
 };
 
+interface IbkrSocket {
+  readonly socket: WebSocket;
+  /** Set on Workers, where the socket starts delivering events once accepted. */
+  readonly accept?: () => void;
+}
+
+/** Workers' reply to an `Upgrade: websocket` fetch; other runtimes lack `webSocket`. */
+interface UpgradeResponse {
+  readonly status: number;
+  readonly webSocket?: (WebSocket & { accept: () => void }) | null;
+}
+
+/**
+ * Opens the socket with the login's cookies in the handshake. Bun and Node
+ * take handshake headers as a second constructor argument; the Workers
+ * constructor rejects them, so on Cloudflare the handshake is a `fetch` with
+ * `Upgrade: websocket`, as Cloudflare documents for outbound sockets.
+ */
+const connectIbkrSocket = async (
+  endpoint: URL,
+  headers: Readonly<Record<string, string>>
+): Promise<IbkrSocket> => {
+  if (navigator.userAgent !== "Cloudflare-Workers") {
+    const socket: WebSocket = Reflect.construct(globalThis.WebSocket, [
+      endpoint.href.replace(/^https:/u, "wss:"),
+      { headers },
+    ]);
+    return { socket };
+  }
+  const response: UpgradeResponse = await fetch(endpoint, {
+    headers: { ...headers, Upgrade: "websocket" },
+  });
+  const socket = response.webSocket;
+  if (!socket) {
+    throw new Error(`WebSocket upgrade refused (${response.status})`);
+  }
+  return { socket, accept: () => socket.accept() };
+};
+
 /**
  * Streams `fields` for each of `conidExes` (a conid, or one directed at a
  * venue such as "265598@OVERNIGHT") until IBKR closes the connection or the
@@ -130,12 +173,7 @@ export const ibkrQuoteStream = Effect.fn("IbkrMarket.quoteStream")(
     fields: readonly string[]
   ) {
     const session = yield* IbkrBrowserSession;
-    const { status, dispatcher } = yield* Ref.get(session.state);
-    if (status.state !== "authenticated") {
-      return yield* Effect.fail(
-        ibkrLoginError("Unauthorized", "IBKR login: not authenticated")
-      );
-    }
+    const { dispatcher } = yield* authenticatedIbkrState;
     const endpoint = new URL("/portal.proxy/v1/portal/ws", dispatcher);
     // Session cookies may only travel to IBKR's hosts.
     if (!isAllowedIbkrUrl(endpoint.href)) {
@@ -146,76 +184,85 @@ export const ibkrQuoteStream = Effect.fn("IbkrMarket.quoteStream")(
     const cookie = cookieHeader(
       yield* Ref.get(session.cookies),
       endpoint.hostname,
-      Date.now()
+      yield* Clock.currentTimeMillis
     );
-    const url = endpoint.href.replace(/^https:/u, "wss:");
+    const headers = { Cookie: cookie, Origin: endpoint.origin };
     const subscription = JSON.stringify({ fields });
-    return Stream.callback<IbkrMarketEvent>(
+    return Stream.callback<IbkrMarketEvent, IbkrLoginError>(
       (queue) => {
         const report = (text: string) =>
           Queue.offerUnsafe(queue, { _tag: "status", text });
+        const listen = ({ socket, accept }: IbkrSocket) => {
+          socket.binaryType = "arraybuffer";
+          let heartbeat: ReturnType<typeof setInterval> | undefined;
+          let fallback: ReturnType<typeof setTimeout> | undefined;
+          let subscribed = false;
+          // As IBKR's web client: once IBKR has said hello on the socket.
+          const subscribe = () => {
+            if (subscribed || socket.readyState !== WebSocket.OPEN) {
+              return;
+            }
+            subscribed = true;
+            for (const conidEx of conidExes) {
+              socket.send(`smd+${conidEx}+${subscription}`);
+            }
+            report(`subscribed ${conidExes.join(", ")}`);
+          };
+          const opened = () => {
+            report("connected to IBKR");
+            heartbeat = setInterval(() => socket.send("ech+hb"), heartbeatMs);
+            fallback = setTimeout(subscribe, subscribeFallbackMs);
+          };
+          socket.addEventListener("message", (event) => {
+            const text =
+              event.data instanceof ArrayBuffer
+                ? new TextDecoder().decode(event.data)
+                : String(event.data);
+            const update = parseIbkrQuoteMessage(text);
+            if (update) {
+              Queue.offerUnsafe(queue, { _tag: "quote", ...update });
+              return;
+            }
+            const note = ibkrSystemNote(text);
+            if (note) {
+              report(note);
+              subscribe();
+            }
+          });
+          const stop = () => {
+            clearInterval(heartbeat);
+            clearTimeout(fallback);
+          };
+          socket.addEventListener("close", (event) => {
+            stop();
+            report(
+              `closed by IBKR (${event.code}${event.reason ? ` ${event.reason}` : ""})`
+            );
+            Queue.endUnsafe(queue);
+          });
+          socket.addEventListener("error", () => {
+            stop();
+            report("IBKR refused or dropped the connection");
+            Queue.endUnsafe(queue);
+          });
+          if (accept) {
+            // A Workers socket is open as soon as it is accepted.
+            accept();
+            opened();
+          } else {
+            socket.addEventListener("open", opened);
+          }
+          return { socket, stop };
+        };
         return Effect.acquireRelease(
-          Effect.sync(() => {
-            // Node's and Bun's WebSocket take handshake headers as a second
-            // argument, which the DOM's constructor type doesn't describe.
-            const socket: WebSocket = Reflect.construct(globalThis.WebSocket, [
-              url,
-              { headers: { Cookie: cookie, Origin: endpoint.origin } },
-            ]);
-            socket.binaryType = "arraybuffer";
-            let heartbeat: ReturnType<typeof setInterval> | undefined;
-            let fallback: ReturnType<typeof setTimeout> | undefined;
-            let subscribed = false;
-            // As IBKR's web client: once IBKR has said hello on the socket.
-            const subscribe = () => {
-              if (subscribed || socket.readyState !== WebSocket.OPEN) {
-                return;
-              }
-              subscribed = true;
-              for (const conidEx of conidExes) {
-                socket.send(`smd+${conidEx}+${subscription}`);
-              }
-              report(`subscribed ${conidExes.join(", ")}`);
-            };
-            socket.addEventListener("open", () => {
-              report("connected to IBKR");
-              heartbeat = setInterval(() => socket.send("ech+hb"), heartbeatMs);
-              fallback = setTimeout(subscribe, subscribeFallbackMs);
-            });
-            socket.addEventListener("message", (event) => {
-              const text =
-                event.data instanceof ArrayBuffer
-                  ? new TextDecoder().decode(event.data)
-                  : String(event.data);
-              const update = parseIbkrQuoteMessage(text);
-              if (update) {
-                Queue.offerUnsafe(queue, { _tag: "quote", ...update });
-                return;
-              }
-              const note = ibkrSystemNote(text);
-              if (note) {
-                report(note);
-                subscribe();
-              }
-            });
-            const stop = () => {
-              clearInterval(heartbeat);
-              clearTimeout(fallback);
-            };
-            socket.addEventListener("close", (event) => {
-              stop();
-              report(
-                `closed by IBKR (${event.code}${event.reason ? ` ${event.reason}` : ""})`
-              );
-              Queue.endUnsafe(queue);
-            });
-            socket.addEventListener("error", () => {
-              stop();
-              report("IBKR refused or dropped the connection");
-              Queue.endUnsafe(queue);
-            });
-            return { socket, stop };
-          }),
+          Effect.tryPromise({
+            try: () => connectIbkrSocket(endpoint, headers),
+            catch: () =>
+              ibkrLoginError(
+                "Upstream",
+                "IBKR market data: connection refused"
+              ),
+          }).pipe(Effect.map(listen)),
           ({ socket, stop }) =>
             Effect.sync(() => {
               stop();

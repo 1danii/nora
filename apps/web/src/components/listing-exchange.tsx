@@ -150,7 +150,6 @@ export const ListingExchange = ({
   const country = listing?.location ?? location?.country;
   return (
     <span
-      title={country ? `${code} · ${country}` : code}
       {...stylex.props(text[12], styles.pill, !location && styles.textOnly)}
     >
       {location && (

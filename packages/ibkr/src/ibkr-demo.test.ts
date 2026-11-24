@@ -8,15 +8,36 @@ import {
   IbkrLedgerSchema,
   IbkrHistorySchema,
   IbkrMarketSnapshotSchema,
+  IbkrPerformanceSchema,
+  IbkrPnlSchema,
   IbkrPortfolioAccountSchema,
   IbkrPositionSchema,
 } from "./ibkr-api-schemas";
 import { ibkrDemoPortalResponse } from "./ibkr-demo";
 
-const bodyOf = (path: string, method = "GET") => {
-  const response = ibkrDemoPortalResponse(method, path);
+const bodyOf = (path: string, method = "GET", body = "") => {
+  const response = ibkrDemoPortalResponse(method, path, body);
   expect(response.status).toBe(200);
   return response.body;
+};
+
+/** The demo's `pa/performance` for a period, its one account's series. */
+const demoPerformance = (period: string) => {
+  const { nav, cps } = Schema.decodeUnknownSync(IbkrPerformanceSchema)(
+    bodyOf(
+      "pa/performance",
+      "POST",
+      JSON.stringify({ acctIds: ["U1234567"], period })
+    )
+  );
+  const [values] = nav?.data ?? [];
+  const [cumulative] = cps?.data ?? [];
+  return {
+    dates: nav?.dates ?? [],
+    navs: values?.navs ?? [],
+    start: values?.startNAV?.val ?? Number.NaN,
+    returns: cumulative?.returns ?? [],
+  };
 };
 
 describe("IBKR demo account", () => {
@@ -46,6 +67,15 @@ describe("IBKR demo account", () => {
       0
     );
     expect(summary.grosspositionvalue?.amount).toBeCloseTo(stockValue, 2);
+    // Each position's move today adds up to the account's, as on IBKR.
+    const dailyPnl = positions.reduce(
+      (total, position) => total + (position.dailyPnl ?? Number.NaN),
+      0
+    );
+    const pnl = Schema.decodeUnknownSync(IbkrPnlSchema)(
+      bodyOf("iserver/account/pnl/partitioned")
+    );
+    expect(pnl.upnl?.[`${accountId}.Core`]?.dpl).toBeCloseTo(dailyPnl, 1);
     expect(ledger.BASE?.netliquidationvalue).toBe(
       summary.netliquidation?.amount
     );
@@ -90,6 +120,29 @@ describe("IBKR demo account", () => {
     );
     expect(etf).not.toHaveProperty("7290");
     expect(etf?.["7287"]).toMatch(/%$/u);
+  });
+
+  it("answers the account's performance for the period in the body", () => {
+    const summary = Schema.decodeUnknownSync(IbkrAccountSummarySchema)(
+      bodyOf("portfolio/U1234567/summary")
+    );
+    const month = demoPerformance("1M");
+    // Weekdays, oldest first, ending on today's total.
+    expect(month.dates).toHaveLength(month.navs.length);
+    expect(month.dates[0]).toMatch(/^\d{8}$/u);
+    expect(month.navs.at(-1)).toBe(summary.netliquidation?.amount);
+    expect(month.returns.at(-1)).toBeCloseTo(
+      (month.navs.at(-1) ?? 0) / month.start - 1,
+      5
+    );
+    // Longer periods reach further back through the same series.
+    const year = demoPerformance("12M");
+    expect(year.dates.length).toBeGreaterThan(month.dates.length);
+    expect(year.navs.at(-1)).toBe(month.navs.at(-1));
+    expect(
+      ibkrDemoPortalResponse("POST", "pa/performance", '{"period":"5Y"}').status
+    ).toBe(400);
+    expect(ibkrDemoPortalResponse("POST", "pa/performance").status).toBe(400);
   });
 
   it("returns IBKR's error shape for calls the demo doesn't cover", () => {

@@ -61,6 +61,7 @@ import { QueryBoundary, TryAgain } from "@/components/query-boundary";
 import { TickerLogo, TickerLogoPlaceholder } from "@/components/ticker-logo";
 import { Button, ButtonIcon } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { listStyles } from "@/components/ui/list-styles";
 import {
   MenuGroup,
   MenuRadioGroup,
@@ -195,44 +196,6 @@ const styles = stylex.create({
     position: "absolute",
     zIndex: -1,
   },
-  // Flush with the heading and page edge: the header's background lines up
-  // with them, and the rows' 12px padding keeps logos under "Name".
-  list: {
-    padding: 0,
-    listStyle: "none",
-    marginBlock: 0,
-    marginInline: 0,
-  },
-  // The asset page's divider line between rows. The name side takes what
-  // the figures leave.
-  row: {
-    // 12px in from each side, header included, so the columns line up.
-    paddingInline: stylex.env.spacing(3),
-    alignItems: "center",
-    columnGap: stylex.env.spacing(4),
-    display: "grid",
-    // Equal-width digits in every cell, header included, so figures line
-    // up down the columns and don't shift as they update.
-    fontVariantNumeric: "tabular-nums",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
-    borderBottomColor: colors.whiteA2,
-    borderBottomStyle: "solid",
-    borderBottomWidth: "0.5px",
-    height: stylex.env.spacing(14),
-  },
-  // On the exchange pill's background (the outline button's), in place of
-  // the rows' divider.
-  header: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.gray2,
-    color: colors.gray11,
-    borderBottomStyle: "none",
-    height: stylex.env.spacing(8),
-  },
-  link: {
-    textDecoration: "none",
-    color: "inherit",
-  },
   // The name, and from lg up the industry in a column of its own.
   identity: {
     alignItems: "center",
@@ -243,52 +206,6 @@ const styles = stylex.create({
       [breakpoints.lg]: "minmax(0, 3fr) minmax(0, 2fr)",
     },
     minWidth: 0,
-  },
-  company: {
-    gap: stylex.env.spacing(3),
-    alignItems: "center",
-    display: "flex",
-    minWidth: 0,
-  },
-  ticker: {
-    color: colors.gray12,
-    flexShrink: 0,
-    fontWeight: 550,
-  },
-  truncated: {
-    overflow: "hidden",
-    color: colors.gray11,
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    minWidth: 0,
-  },
-  // Only where the row has room for them.
-  fromMd: {
-    display: {
-      default: "none",
-      [breakpoints.md]: "block",
-    },
-  },
-  fromLg: {
-    display: {
-      default: "none",
-      [breakpoints.lg]: "block",
-    },
-  },
-  figure: {
-    color: colors.gray12,
-    whiteSpace: "nowrap",
-  },
-  quote: {
-    alignItems: "center",
-    columnGap: stylex.env.spacing(4),
-    display: "grid",
-    justifyItems: "end",
-  },
-  change: {
-    alignItems: "center",
-    color: colors.gray11,
-    display: "flex",
   },
   // A thin track the width of its column, with a dot at the price.
   range: {
@@ -319,17 +236,6 @@ const styles = stylex.create({
   note: {
     paddingBlock: stylex.env.spacing(4),
     color: colors.gray11,
-  },
-  // A figure still loading: a bar in the skeletons' colour, about as wide
-  // as the figure, so the row keeps its shape. Plain CSS, as there's one per
-  // cell.
-  bar: {
-    borderRadius: 4,
-    backgroundColor: colors.whiteA1,
-    display: "inline-block",
-    verticalAlign: "middle",
-    height: "0.75em",
-    width: "3.5em",
   },
   // The end of the "All" list: quiet, centred under the last row.
   pageLoading: {
@@ -478,7 +384,7 @@ const styles = stylex.create({
   },
 });
 
-const bar = <span {...stylex.props(styles.bar)} />;
+const bar = <span {...stylex.props(listStyles.bar)} />;
 
 /**
  * The figures' fixed widths, so they line up from row to row: price, then
@@ -768,7 +674,9 @@ const YearRange = ({ quote }: { quote: ExploreQuote | undefined }) => {
     last === undefined ||
     high <= low
   ) {
-    return <span {...stylex.props(styles.figure, styles.fromMd)}>—</span>;
+    return (
+      <span {...stylex.props(listStyles.figure, listStyles.fromMd)}>—</span>
+    );
   }
   const position = Math.min(1, Math.max(0, (last - low) / (high - low)));
   const decimals = quote?.lastDecimals ?? 2;
@@ -778,7 +686,7 @@ const YearRange = ({ quote }: { quote: ExploreQuote | undefined }) => {
     <span
       aria-hidden="true"
       title={label}
-      {...stylex.props(styles.range, styles.fromMd)}
+      {...stylex.props(styles.range, listStyles.fromMd)}
     >
       <span {...stylex.props(styles.rangeDot(position))} />
     </span>
@@ -799,40 +707,45 @@ const QuoteCells = ({
   /** Bars in place of the figures, while the quotes load. */
   loading?: boolean;
 }) => (
-  <span {...stylex.props(text[14], styles.quote, quoteColumns[columns.length])}>
-    <span {...stylex.props(styles.figure)}>
+  <span
+    {...stylex.props(text[14], listStyles.quote, quoteColumns[columns.length])}
+  >
+    <span {...stylex.props(listStyles.figure)}>
       {loading
         ? bar
         : orDash(quote?.last, (last) =>
             formatPrice(last, scanCurrency, quote?.lastDecimals ?? 2)
           )}
     </span>
-    <span {...stylex.props(styles.figure, styles.fromLg)}>
+    <span {...stylex.props(listStyles.figure, listStyles.fromLg)}>
       {loading
         ? bar
         : orDash(quote?.volume, (volume) => compactNumber.format(volume))}
     </span>
-    <span {...stylex.props(styles.figure, styles.fromLg)}>
+    <span {...stylex.props(listStyles.figure, listStyles.fromLg)}>
       {loading
         ? bar
         : orDash(quote?.marketCap, (cap) =>
             formatCompactMoney(cap, scanCurrency)
           )}
     </span>
-    <span {...stylex.props(styles.figure, styles.fromLg)}>
+    <span {...stylex.props(listStyles.figure, listStyles.fromLg)}>
       {loading ? bar : orDash(quote?.pe, (pe) => decimalNumber.format(pe))}
     </span>
     {columns.map((column) => (
-      <span key={column.label} {...stylex.props(styles.figure, styles.fromLg)}>
+      <span
+        key={column.label}
+        {...stylex.props(listStyles.figure, listStyles.fromLg)}
+      >
         {loading ? bar : ((quote && column.value(quote)) ?? "—")}
       </span>
     ))}
     {loading ? (
-      <span {...stylex.props(styles.range, styles.fromMd)} />
+      <span {...stylex.props(styles.range, listStyles.fromMd)} />
     ) : (
       <YearRange quote={quote} />
     )}
-    <span {...stylex.props(styles.change)}>
+    <span {...stylex.props(listStyles.change)}>
       {loading && bar}
       {!loading && quote?.changeRatio === undefined && "—"}
       {!loading && quote?.changeRatio !== undefined && (
@@ -865,7 +778,7 @@ const sampleQuote: ExploreQuote = {
 const quotesPollInterval = 5000;
 
 const industryOf = (quote: ExploreQuote | undefined, loading: boolean) => (
-  <span {...stylex.props(text[14], styles.truncated)}>
+  <span {...stylex.props(text[14], listStyles.truncated)}>
     {loading ? bar : (quote?.industry ?? "—")}
   </span>
 );
@@ -888,32 +801,35 @@ const RowIdentity = ({
   industry: ReactNode;
 }) => (
   <span {...stylex.props(text[14], styles.identity)}>
-    <span {...stylex.props(styles.company)}>
+    <span {...stylex.props(listStyles.company)}>
       {logo}
-      <span {...stylex.props(styles.ticker)}>{symbol}</span>
-      <span {...stylex.props(styles.truncated)}>{name}</span>
+      <span {...stylex.props(listStyles.ticker)}>{symbol}</span>
+      <span {...stylex.props(listStyles.truncated)}>{name}</span>
     </span>
-    <span {...stylex.props(styles.fromLg)}>{industry}</span>
+    <span {...stylex.props(listStyles.fromLg)}>{industry}</span>
   </span>
 );
 
 const ListHeader = ({ columns }: { columns: readonly ListColumn[] }) => (
-  <li aria-hidden="true" {...stylex.props(text[12], styles.row, styles.header)}>
+  <li
+    aria-hidden="true"
+    {...stylex.props(text[12], listStyles.row, listStyles.header)}
+  >
     <span {...stylex.props(styles.identity)}>
       <span>Name</span>
-      <span {...stylex.props(styles.fromLg)}>Industry</span>
+      <span {...stylex.props(listStyles.fromLg)}>Industry</span>
     </span>
-    <span {...stylex.props(styles.quote, quoteColumns[columns.length])}>
+    <span {...stylex.props(listStyles.quote, quoteColumns[columns.length])}>
       <span>Price</span>
-      <span {...stylex.props(styles.fromLg)}>Volume</span>
-      <span {...stylex.props(styles.fromLg)}>Market cap</span>
-      <span {...stylex.props(styles.fromLg)}>P/E</span>
+      <span {...stylex.props(listStyles.fromLg)}>Volume</span>
+      <span {...stylex.props(listStyles.fromLg)}>Market cap</span>
+      <span {...stylex.props(listStyles.fromLg)}>P/E</span>
       {columns.map((column) => (
-        <span key={column.label} {...stylex.props(styles.fromLg)}>
+        <span key={column.label} {...stylex.props(listStyles.fromLg)}>
           {column.label}
         </span>
       ))}
-      <span {...stylex.props(styles.fromMd)}>52-week range</span>
+      <span {...stylex.props(listStyles.fromMd)}>52-week range</span>
       <span>Today</span>
     </span>
   </li>
@@ -938,10 +854,7 @@ const ScanRowItem = ({
     <Link
       to="/dashboard/assets/$symbol"
       params={{ symbol: row.slug }}
-      // The asset page's loader can open the brokerage session, so it
-      // waits for a click.
-      preload={false}
-      {...stylex.props(styles.row, styles.link)}
+      {...stylex.props(listStyles.row, listStyles.link)}
     >
       <RowIdentity
         logo={
@@ -1072,7 +985,7 @@ const ScanList = ({ selection }: { selection: FixedSelection }) => {
     return emptyList;
   }
   return (
-    <ul {...stylex.props(styles.list)}>
+    <ul {...stylex.props(listStyles.list)}>
       <ListHeader columns={columns} />
       <QuotedPage rows={rows} columns={columns} />
     </ul>
@@ -1185,10 +1098,10 @@ const AllHeader = ({
   table: ReturnType<typeof useAllTable>;
   ref: Ref<HTMLLIElement>;
 }) => (
-  <li ref={ref} {...stylex.props(text[12], styles.row, styles.header)}>
+  <li ref={ref} {...stylex.props(text[12], listStyles.row, listStyles.header)}>
     <span {...stylex.props(styles.identity)}>
       <span>Name</span>
-      <span {...stylex.props(styles.fromLg)}>Industry</span>
+      <span {...stylex.props(listStyles.fromLg)}>Industry</span>
     </span>
     <table.Subscribe selector={(state) => state.sorting}>
       {(sorting: SortingState) => {
@@ -1208,12 +1121,12 @@ const AllHeader = ({
           />
         );
         return (
-          <span {...stylex.props(styles.quote, quoteColumns[0])}>
+          <span {...stylex.props(listStyles.quote, quoteColumns[0])}>
             {header("price", "Price")}
             {header("volume", "Volume", true)}
             {header("marketCap", "Market cap", true)}
             {header("pe", "P/E", true)}
-            <span {...stylex.props(styles.fromMd)}>52-week range</span>
+            <span {...stylex.props(listStyles.fromMd)}>52-week range</span>
             {header("change", "Today")}
           </span>
         );
@@ -1432,7 +1345,7 @@ const AllList = ({
     );
   }
   return (
-    <ul {...stylex.props(styles.list)}>
+    <ul {...stylex.props(listStyles.list)}>
       <AllHeader table={table} ref={headerRef} />
       {before > 0 ? (
         <li aria-hidden="true" {...stylex.props(styles.spacer(before))} />
@@ -1774,10 +1687,10 @@ const sampleRows: readonly ScanRow[] = Array.from(
 const ScanListSkeleton = ({ selection }: { selection: ExploreSelection }) => {
   const columns = columnsOf(selection);
   return (
-    <ul {...stylex.props(styles.list)}>
+    <ul {...stylex.props(listStyles.list)}>
       <ListHeader columns={columns} />
       {sampleRows.map((row) => (
-        <li key={row.conid} {...stylex.props(styles.row)}>
+        <li key={row.conid} {...stylex.props(listStyles.row)}>
           <RowIdentity
             logo={<TickerLogoPlaceholder size={32} />}
             symbol={row.symbol}
@@ -1964,7 +1877,7 @@ const ExplorePage = () => {
 };
 
 export const Route = createFileRoute("/_app/dashboard/explore/")({
-  head: () => ({ meta: [{ title: "Explore · Nora" }] }),
+  head: () => ({ meta: [{ title: "Explore – Nora" }] }),
   // `?list=<id>` for a popular list, `?scan=gainers` for a scan; "All" has
   // no parameter, or its order, sector and ranges:
   // `?sort=pe&order=asc&sector=…&peMax=30`.

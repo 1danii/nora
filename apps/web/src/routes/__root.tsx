@@ -10,6 +10,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import { Agentation } from "agentation";
 import type { ReactNode } from "react";
 
 import { NotFound } from "@/components/not-found";
@@ -68,6 +69,8 @@ const RootDocument = () => (
         <Outlet />
       </SkeletonProvider>
     </div>
+    {/* Click-to-annotate UI feedback for coding agents. Renders nothing on the server. */}
+    {import.meta.env.DEV && <Agentation />}
     {import.meta.env.DEV && (
       <TanStackDevtools
         plugins={[

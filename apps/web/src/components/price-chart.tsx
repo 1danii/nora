@@ -1,4 +1,3 @@
-import type { IbkrHistory } from "@nora/ibkr/api-schemas";
 import * as stylex from "@stylexjs/stylex";
 import { areaY, defineChart, lineY } from "@tanstack/charts";
 import type { ChartInteractionController } from "@tanstack/charts";
@@ -7,6 +6,7 @@ import { decorative } from "@tanstack/charts/mark/decorative";
 import { Chart } from "@tanstack/charts/react";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { scaleUtc } from "@tanstack/charts/scales/time";
+import type { ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -193,6 +193,12 @@ const styles = stylex.create({
 });
 
 /** A hovered bar: its start time in epoch ms and its close. */
+/** A point to draw: its time (ms) and closing value. */
+export interface ChartBar {
+  t: number;
+  c: number;
+}
+
 export interface HoveredBar {
   time: number;
   close: number;
@@ -274,7 +280,7 @@ const dimMask = (from: number, to: number) => {
  * chart's definition. Read through `usePriceDrawing`.
  */
 const drawingOf = (
-  bars: IbkrHistory["data"],
+  bars: readonly ChartBar[],
   timeDomain: readonly [Date, Date] | undefined,
   extendedHours: readonly { from: Date; to: Date }[] | undefined,
   trend: Trend
@@ -413,7 +419,7 @@ const drawingOf = (
  * chart is rebuilt on every pointer move.
  */
 const usePriceDrawing = (
-  bars: IbkrHistory["data"],
+  bars: readonly ChartBar[],
   timeDomain: readonly [Date, Date] | undefined,
   extendedHours: readonly { from: Date; to: Date }[] | undefined,
   trend: Trend
@@ -445,9 +451,10 @@ export const PriceChart = ({
   extendedHours,
   trend = "up",
   formatDate,
+  formatSelection,
   onHoverChange,
 }: {
-  bars: IbkrHistory["data"];
+  bars: readonly ChartBar[];
   /** The timeframe, e.g. "1Y". */
   label: string;
   /**
@@ -461,6 +468,12 @@ export const PriceChart = ({
   trend?: Trend;
   /** A point's time, shown above it; a dragged period shows its two ends. */
   formatDate?: (date: Date) => string;
+  /**
+   * A dragged period's move, from its first bar to its last. The closes'
+   * own change unless given, for a line whose values aren't the figure to
+   * show, e.g. a return drawn for a gain in money.
+   */
+  formatSelection?: (from: ChartBar, to: ChartBar) => ReactNode;
   /** The hovered bar, or null once nothing is hovered. */
   onHoverChange?: (bar: HoveredBar | null) => void;
 }) => {
@@ -708,10 +721,20 @@ export const PriceChart = ({
         >
           {selection ? (
             <>
-              <ChangeFigures
-                change={selection.to.close - selection.from.close}
-                base={selection.from.close}
-              />
+              {formatSelection ? (
+                formatSelection(
+                  { t: selection.from.date.getTime(), c: selection.from.close },
+                  { t: selection.to.date.getTime(), c: selection.to.close }
+                )
+              ) : (
+                <ChangeFigures
+                  change={selection.to.close - selection.from.close}
+                  ratio={
+                    (selection.to.close - selection.from.close) /
+                    selection.from.close
+                  }
+                />
+              )}
               {formatDate
                 ? `${formatDate(selection.from.date)} – ${formatDate(selection.to.date)}`
                 : null}

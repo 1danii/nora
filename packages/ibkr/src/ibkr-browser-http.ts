@@ -22,23 +22,19 @@ const httpError = (message: string) =>
 // Names only the host: paths and queries can carry login tokens.
 const rejectedDestination = (value: string) =>
   httpError(
-    `rejected upstream destination (${URL.canParse(value) ? new URL(value).host : "invalid URL"})`
+    `rejected upstream destination (${URL.parse(value)?.host ?? "invalid URL"})`
   );
 
 /** Session cookies may only ever travel to these IBKR HTTPS hosts. */
 export const isAllowedIbkrUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      !url.port &&
-      !url.username &&
-      !url.password &&
-      allowedHosts.has(url.hostname)
-    );
-  } catch {
-    return false;
-  }
+  const url = URL.parse(value);
+  return (
+    url?.protocol === "https:" &&
+    !url.port &&
+    !url.username &&
+    !url.password &&
+    allowedHosts.has(url.hostname)
+  );
 };
 
 /**
@@ -84,7 +80,6 @@ export const ibkrBrowserSend = Effect.fn("IbkrBrowser.send")(
       HttpClient.followRedirects(8)
     );
     const response = yield* client.execute(request).pipe(
-      // Redirects are followed above, so each hop's cookies and host are checked.
       Effect.provideService(FetchHttpClient.RequestInit, {
         redirect: "manual",
       }),
@@ -109,7 +104,7 @@ export const ibkrBrowserRequest = Effect.fn("IbkrBrowser.request")(
     url: string,
     form?: URLSearchParams
   ) {
-    const origin = URL.canParse(url) ? new URL(url).origin : "";
+    const origin = URL.parse(url)?.origin ?? "";
     const request =
       form === undefined
         ? HttpClientRequest.get(url)

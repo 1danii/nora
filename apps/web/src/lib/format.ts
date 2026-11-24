@@ -6,7 +6,11 @@
 /** Number formats NumberFlow also takes: no scientific notation. */
 type MoneyOptions = Pick<
   Intl.NumberFormatOptions,
-  "style" | "currency" | "minimumFractionDigits" | "maximumFractionDigits"
+  | "style"
+  | "currency"
+  | "minimumFractionDigits"
+  | "maximumFractionDigits"
+  | "signDisplay"
 > & { notation?: "compact" };
 
 /** The ISO codes `Intl` can format, e.g. "USD", "EUR", "CZK". */
@@ -45,6 +49,25 @@ const cachedMoney = (currency: string | undefined, notation?: "compact") => {
 /** A price, e.g. "$1,234.50", "€98.10", "CHF 12.00". */
 export const formatMoney = (amount: number, currency: string | undefined) =>
   cachedMoney(currency).format(amount);
+
+const signedMoneyFormats = new Map<string, Intl.NumberFormat>();
+
+/** A gain or loss, e.g. "+$1,234.50" or "-€98.10". */
+export const formatSignedMoney = (
+  amount: number,
+  currency: string | undefined
+) => {
+  const key = currency ?? "";
+  let format = signedMoneyFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat("en-US", {
+      ...moneyOptions(currency),
+      signDisplay: "exceptZero",
+    });
+    signedMoneyFormats.set(key, format);
+  }
+  return format.format(amount);
+};
 
 const priceFormats = new Map<string, Intl.NumberFormat>();
 

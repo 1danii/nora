@@ -14,6 +14,7 @@ import { Option, Schema } from "effect";
 
 import { parseIbkrNumber } from "@/lib/format";
 import { parseIbkrNewsWidget } from "@/lib/ibkr-asset-news";
+import { IbkrBrokerageUnavailableError } from "@/lib/ibkr-brokerage-error";
 import {
   requestIbkrFundamentals,
   requestIbkrNews,
@@ -55,9 +56,8 @@ export const listingSlug = (symbol: string, exchange?: string | null) =>
 
 const decodeAuthStatus = Schema.decodeUnknownSync(IbkrAuthStatusSchema);
 
-const isBrokerageOpen = async () =>
-  decodeAuthStatus(await requestIbkrPortal("GET", "iserver/auth/status"))
-    .authenticated === true;
+const brokerageStatus = async () =>
+  decodeAuthStatus(await requestIbkrPortal("GET", "iserver/auth/status"));
 
 /**
  * Thrown while IBKR is still getting something ready, such as the brokerage
@@ -76,13 +76,30 @@ export const retryWhilePending = (times: number) => ({
 });
 
 /** Checks once a second, a few times, while IBKR opens the session. */
-const brokerageOpenedQuery = queryOptions({
-  queryKey: ["ibkr", "portal", "brokerage", "opened"],
+/**
+ * The trading ("brokerage") session every `iserver/*` call needs: quotes,
+ * charts, scans, contract search, today's P&L. IBKR allows one per username
+ * across TWS, IBKR Mobile and the Client Portal, so it's either open here or
+ * held by one of those (`competing`).
+ */
+export interface BrokerageSession {
+  open: boolean;
+  /** Held by another platform, as IBKR reports it. */
+  competing: boolean;
+}
+
+/**
+ * IBKR's status once an open request has settled: open, or held elsewhere.
+ * Opening takes a moment, so it's asked a few times, a second apart.
+ */
+const brokerageSettledQuery = queryOptions({
+  queryKey: ["ibkr", "portal", "brokerage", "settled"],
   queryFn: async () => {
-    if (!(await isBrokerageOpen())) {
+    const status = await brokerageStatus();
+    if (status.authenticated !== true && status.competing !== true) {
       throw new IbkrPendingError("IBKR didn't open the brokerage session.");
     }
-    return true;
+    return status;
   },
   ...retryWhilePending(5),
   // Only asked right after opening the session, and always freshly.
@@ -90,27 +107,65 @@ const brokerageOpenedQuery = queryOptions({
 });
 
 /**
- * Opens the brokerage session that every `iserver/*` call needs, as IBKR's web
- * app does, then loads the account list IBKR expects before market data.
- * `compete` takes the session over from TWS or the mobile app.
+ * Opens the session as the Client Portal does. Without `compete` it only
+ * opens when no other platform holds it, so it never signs out TWS or IBKR
+ * Mobile; with it, it takes the session over and signs them out, which the
+ * Client Portal only does when asked ("Log in with Trading/Market Data").
+ * Then loads the account list, which IBKR expects before market data.
+ */
+export const openBrokerage = async (
+  client: QueryClient,
+  compete: boolean
+): Promise<BrokerageSession> => {
+  const status = await brokerageStatus();
+  if (status.authenticated !== true) {
+    await requestIbkrPortal(
+      "POST",
+      "iserver/auth/ssodh/init",
+      JSON.stringify({ publish: true, compete })
+    );
+    const settled = await client.query({
+      ...brokerageSettledQuery,
+      staleTime: 0,
+    });
+    if (settled.authenticated !== true) {
+      return { open: false, competing: settled.competing === true };
+    }
+  }
+  await requestIbkrPortal("GET", "iserver/accounts");
+  return { open: true, competing: false };
+};
+
+/**
+ * The brokerage session, opened when the dashboard opens. It takes the
+ * session over from any other platform, signing TWS or IBKR Mobile out, so
+ * Nora always has market data. (The Client Portal asks first; see TODO.md.)
  */
 export const ibkrBrokerageQuery = queryOptions({
   queryKey: ["ibkr", "portal", "brokerage"],
-  queryFn: async ({ client }) => {
-    if (!(await isBrokerageOpen())) {
-      await requestIbkrPortal(
-        "POST",
-        "iserver/auth/ssodh/init",
-        JSON.stringify({ publish: true, compete: true })
-      );
-      await client.query({ ...brokerageOpenedQuery, staleTime: 0 });
-    }
-    return requestIbkrPortal("GET", "iserver/accounts");
-  },
+  queryFn: ({ client }) => openBrokerage(client, true),
   retry: false,
-  // /tickle keeps the session alive while the app is open.
+  // /tickle keeps an open one alive. Once another platform takes it, it's
+  // stale after five minutes and taken back when Nora is next used (the
+  // window regains focus or a page mounts), not while the user is elsewhere.
   staleTime: 5 * 60_000,
 });
+
+/**
+ * Waits for the brokerage session before an `iserver` read, and fails with
+ * `IbkrBrokerageUnavailableError` while another platform holds it.
+ */
+export const requireBrokerage = async (client: QueryClient) => {
+  const session = await client.query({
+    ...ibkrBrokerageQuery,
+    staleTime: "static",
+  });
+  if (!session.open) {
+    throw new IbkrBrokerageUnavailableError(
+      "Another platform holds IBKR's trading session."
+    );
+  }
+};
 
 const decodeContractSearch = Schema.decodeUnknownSync(IbkrContractSearchSchema);
 const decodeContractInfo = Schema.decodeUnknownSync(IbkrContractInfoSchema);
@@ -120,7 +175,7 @@ const assetContractInfoQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", conid, "info"],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       return decodeContractInfo(
         await requestIbkrPortal("GET", `iserver/contract/${conid}/info`)
       );
@@ -205,7 +260,7 @@ export const assetContractQuery = (slug: string) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", slug, "contract"],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const { symbol, exchange } = parseAssetSlug(slug);
       const results = decodeContractSearch(
         await requestIbkrPortal(
@@ -296,7 +351,7 @@ export const assetPriceQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", conid, "price"],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       return requestSnapshot(conid, snapshotFields);
     },
     ...retryWhilePending(3),
@@ -356,7 +411,7 @@ export const assetOvernightQuoteQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", conid, "overnight"],
     queryFn: async ({ client }): Promise<Schema.Json | null> => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       try {
         return await requestIbkrPortal(
           "GET",
@@ -490,7 +545,7 @@ export const assetStatsQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", conid, "stats"],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       return statsOf(
         await requestSnapshot(
           conid,
@@ -779,7 +834,7 @@ export const assetHistoryQuery = (conid: number, range: HistoryRange) =>
   queryOptions({
     queryKey: ["ibkr", "portal", "asset", conid, "history", range.id],
     queryFn: async ({ client }): Promise<AssetHistory> => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const path = `iserver/marketdata/history?conid=${conid}&period=${range.period}&bar=${range.bar}`;
       if ("yearToDate" in range) {
         const [history, schedule] = await Promise.all([
@@ -830,7 +885,7 @@ export const assetProfileQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "fundamentals", "profile", conid],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const profile = await requestIbkrFundamentals(`profile/${conid}`);
       return {
         about: looseText(decodeProfile(profile).businessSummary?.value),
@@ -845,7 +900,7 @@ export const assetNewsQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "fundamentals", "news", conid],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       // Current IBKR clients request headlines from news2, outside fundamentals.
       const raw = await requestIbkrNews(
         `landing/${conid}?widgets=news&lang=en`
@@ -911,7 +966,7 @@ export const assetRatingsQuery = (conid: number) =>
   queryOptions({
     queryKey: ["ibkr", "fundamentals", "ratings", conid],
     queryFn: async ({ client }) => {
-      await client.query({ ...ibkrBrokerageQuery, staleTime: "static" });
+      await requireBrokerage(client);
       const { summary } = decodeRatings(
         await requestIbkrFundamentals(`ratings/${conid}?price=true`)
       );

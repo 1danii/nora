@@ -38,16 +38,17 @@ const styles = stylex.create({
     transitionProperty: "background-color",
     transitionTimingFunction: "ease",
     userSelect: "none",
-    height: stylex.env.spacing(9),
-    width: stylex.env.spacing(9),
+    height: stylex.env.spacing(8),
+    width: stylex.env.spacing(8),
   },
   popup: {
     padding: stylex.env.spacing(1),
     minWidth: stylex.env.spacing(56),
   },
-  // Lined up with the options' text.
+  // Lined up with the options' text; tighter than an option, since the two
+  // lines read as one label.
   identity: {
-    paddingBlock: stylex.env.spacing(2),
+    paddingBlock: stylex.env.spacing(1.5),
     paddingInline: stylex.env.spacing(3),
     display: "flex",
     flexDirection: "column",
@@ -56,6 +57,8 @@ const styles = stylex.create({
     overflow: "hidden",
     color: colors.gray12,
     fontWeight: 550,
+    // 18px instead of text[14]'s 20px, so the login type sits close under it.
+    lineHeight: "calc(1.125 / .875)",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
@@ -119,7 +122,7 @@ export const ProfileMenu = () => {
     <Menu.Root>
       <Menu.Trigger
         aria-label={`Account menu for ${username}`}
-        {...stylex.props(text[14], styles.avatar)}
+        {...stylex.props(text[12], styles.avatar)}
       >
         {username.slice(0, 1) || "?"}
       </Menu.Trigger>

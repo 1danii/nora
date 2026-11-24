@@ -95,7 +95,7 @@ const DuskDesign = () => {
 export const Route = createFileRoute("/_landing/design/dusk/")({
   head: () => ({
     links: [{ rel: "stylesheet", href: dialkitCss }],
-    meta: [{ title: "Dusk · Nora" }],
+    meta: [{ title: "Dusk – Nora" }],
   }),
   component: DuskDesign,
 });

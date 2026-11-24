@@ -67,17 +67,23 @@ export const Trend = ({ up }: { up: boolean }) => (
   />
 );
 
+const formatSignedNumber = (change: number) => signedNumber.format(change);
+
 /** "▲ +1.23 (0.52%)", in whatever type surrounds it, e.g. a pill. */
 export const ChangeFigures = ({
   change,
-  base,
+  ratio,
+  formatChange = formatSignedNumber,
 }: {
   change: number;
-  base: number;
+  /** The move as a fraction of where it's measured from. */
+  ratio: number;
+  /** The change's own figure; a plain signed number unless given. */
+  formatChange?: (change: number) => string;
 }) => (
   <span {...stylex.props(styles.figures)}>
     <Trend up={change >= 0} />
-    {signedNumber.format(change)} ({percent.format(Math.abs(change) / base)})
+    {formatChange(change)} ({percent.format(Math.abs(ratio))})
   </span>
 );
 

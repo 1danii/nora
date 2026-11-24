@@ -23,7 +23,6 @@ export default Alchemy.Stack(
       },
       compatibility: {
         date: "2026-10-26",
-        flags: ["temporal"],
       },
       dev: {
         port: 3000,

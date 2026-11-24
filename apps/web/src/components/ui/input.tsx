@@ -20,6 +20,7 @@ const styles = stylex.create({
       default: null,
       ":focus-visible": "1px solid transparent",
     },
+    paddingInline: stylex.env.spacing(3),
     backgroundColor: colors.gray2,
     // Invalid keeps the thin red border; the red halo only shows on focus.
     boxShadow: {
@@ -49,6 +50,7 @@ const styles = stylex.create({
     transitionProperty: "box-shadow, opacity",
     // Opacity (disabled) keeps the default easing.
     transitionTimingFunction: "ease-out, ease",
+    height: stylex.env.spacing(9),
     minWidth: 0,
     width: "100%",
     // No native clear (×) on a search; Escape still clears it.
@@ -61,40 +63,14 @@ const styles = stylex.create({
   },
 });
 
-const sizes = stylex.create({
-  default: {
-    paddingInline: stylex.env.spacing(3),
-    height: stylex.env.spacing(9),
-  },
-  lg: {
-    paddingInline: stylex.env.spacing(4),
-    height: stylex.env.spacing(11),
-  },
-});
-
 /**
- * With a leading icon: the icon sits in the size's padding, and the text
- * starts a gap after it.
+ * With a leading icon: the icon sits in the padding, and the text starts a
+ * gap after it.
  */
-const iconSizes = stylex.create({
-  default: {
+const iconStyles = stylex.create({
+  input: {
     paddingInlineStart: `calc(${stylex.env.spacing(3)} + 1em + ${stylex.env.spacing(2)})`,
   },
-  lg: {
-    paddingInlineStart: `calc(${stylex.env.spacing(4)} + 1em + ${stylex.env.spacing(2)})`,
-  },
-});
-
-const iconOffsets = stylex.create({
-  default: {
-    insetInlineStart: stylex.env.spacing(3),
-  },
-  lg: {
-    insetInlineStart: stylex.env.spacing(4),
-  },
-});
-
-const iconStyles = stylex.create({
   // Takes the input's place in the layout, so `style` sizes it.
   wrapper: {
     alignItems: "center",
@@ -106,6 +82,7 @@ const iconStyles = stylex.create({
     color: colors.whiteA6,
     display: "flex",
     fontSize: fontSizes[14],
+    insetInlineStart: stylex.env.spacing(3),
     pointerEvents: "none",
     position: "absolute",
     height: "1em",
@@ -118,49 +95,28 @@ const iconStyles = stylex.create({
 });
 
 /**
- * With a hotkey: its keys sit at the end, in the size's padding, and the
- * text stops a gap before them. Sized for one key, e.g. "/".
+ * With a hotkey: its keys sit at the end, in the padding, and the text stops
+ * a gap before them. Sized for one key, e.g. "/".
  */
-const hotkeySizes = stylex.create({
-  default: {
+const hotkeyStyles = stylex.create({
+  input: {
     paddingInlineEnd: `calc(${stylex.env.spacing(3)} + ${stylex.env.spacing(4)} + ${stylex.env.spacing(2)})`,
   },
-  lg: {
-    paddingInlineEnd: `calc(${stylex.env.spacing(4)} + ${stylex.env.spacing(4)} + ${stylex.env.spacing(2)})`,
-  },
-});
-
-const hotkeyOffsets = stylex.create({
-  default: {
-    insetInlineEnd: stylex.env.spacing(3),
-  },
-  lg: {
-    insetInlineEnd: stylex.env.spacing(4),
-  },
-});
-
-const hotkeyStyles = stylex.create({
   // Always shown: the text stops before it, so its space is never empty.
   hint: {
     display: "flex",
+    insetInlineEnd: stylex.env.spacing(3),
     pointerEvents: "none",
     position: "absolute",
   },
 });
 
-export type InputSize = keyof typeof sizes;
-
-// SAFETY: stylex.create keeps the keys it was given.
-export const inputSizes = Object.keys(sizes) as InputSize[];
-
 export const Input = ({
-  size = "default",
   style,
   icon: Icon,
   hotkey,
   ...props
-}: Omit<InputPrimitive.Props, "className" | "size" | "style"> & {
-  size?: InputSize;
+}: Omit<InputPrimitive.Props, "className" | "style"> & {
   style?: stylex.StyleXStyles;
   /** A leading icon, e.g. a magnifying glass on a search. */
   icon?: ComponentType<{ className?: string }>;
@@ -173,17 +129,12 @@ export const Input = ({
   const ref = useRef<HTMLInputElement>(null);
   useHotkey(hotkey, () => ref.current?.focus());
   if (!(Icon || hotkey)) {
-    return (
-      <InputPrimitive
-        {...props}
-        {...stylex.props(styles.base, sizes[size], style)}
-      />
-    );
+    return <InputPrimitive {...props} {...stylex.props(styles.base, style)} />;
   }
   return (
     <span {...stylex.props(iconStyles.wrapper, style)}>
       {Icon ? (
-        <span {...stylex.props(iconStyles.icon, iconOffsets[size])}>
+        <span {...stylex.props(iconStyles.icon)}>
           <Icon {...stylex.props(iconStyles.glyph)} />
         </span>
       ) : null}
@@ -192,13 +143,12 @@ export const Input = ({
         ref={ref}
         {...stylex.props(
           styles.base,
-          sizes[size],
-          Icon && iconSizes[size],
-          hotkey && hotkeySizes[size]
+          Icon && iconStyles.input,
+          hotkey && hotkeyStyles.input
         )}
       />
       {hotkey ? (
-        <span {...stylex.props(hotkeyStyles.hint, hotkeyOffsets[size])}>
+        <span {...stylex.props(hotkeyStyles.hint)}>
           <Hotkey hotkey={hotkey} />
         </span>
       ) : null}

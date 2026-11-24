@@ -12,7 +12,7 @@ import {
   buttonSizes,
   buttonVariants,
 } from "@/components/ui/button";
-import { Input, inputSizes } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Hotkey, Kbd } from "@/components/ui/kbd";
 import {
   MenuRadioGroup,
@@ -319,15 +319,11 @@ const DesignPage = () => (
       <SkeletonDemo />
     </Section>
     <Section title="Input">
-      {inputSizes.map((size) => (
-        <Input
-          key={size}
-          size={size}
-          aria-label={`Username (${size})`}
-          placeholder="Username"
-          style={styles.field}
-        />
-      ))}
+      <Input
+        aria-label="Username"
+        placeholder="Username"
+        style={styles.field}
+      />
     </Section>
     <Section title="Input · with hotkey">
       <Input
@@ -371,6 +367,6 @@ const DesignPage = () => (
 );
 
 export const Route = createFileRoute("/_landing/design/")({
-  head: () => ({ meta: [{ title: "Design · Nora" }] }),
+  head: () => ({ meta: [{ title: "Design – Nora" }] }),
   component: DesignPage,
 });

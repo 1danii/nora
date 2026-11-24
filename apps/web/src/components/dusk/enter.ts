@@ -35,6 +35,11 @@ const rest: EnterFrame = {
 // Each animation maps progress (0 → 1, already eased) to how the dusk looks.
 // Mask values scale the mask's own width and height.
 export const enterFrame = (animation: string, p: number): EnterFrame => {
+  // Every animation ends at rest. Returning it exactly drops the leftover
+  // `brightness(1) blur(0px)`, which would keep a full-screen filter alive.
+  if (p >= 1) {
+    return rest;
+  }
   switch (animation) {
     // The sky simply fades up out of the dark.
     case "fade": {

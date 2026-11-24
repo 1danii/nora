@@ -37,7 +37,7 @@ const IbkrLogin = () => {
 };
 
 export const Route = createFileRoute("/_app/login/")({
-  head: () => ({ meta: [{ title: "Log in · Nora" }] }),
+  head: () => ({ meta: [{ title: "Log in – Nora" }] }),
   // The search parser may hand back a number or object, hence `String`.
   validateSearch: (search: LoginSearch): LoginSearch => {
     const target = safeRedirect(String(search.redirect));

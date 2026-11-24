@@ -9,9 +9,12 @@ import type {
   ErrorRouteComponent,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { SkeletonSuspense } from "@/components/ui/skeleton";
+import { useBrokerageAccess } from "@/lib/ibkr-brokerage";
+import { IbkrBrokerageUnavailableError } from "@/lib/ibkr-brokerage-error";
 import { text } from "@/styles/text";
 import { colors } from "@/styles/tokens.stylex";
 
@@ -53,11 +56,38 @@ const styles = stylex.create({
   },
 });
 
+/**
+ * In place of data that needs IBKR's trading session after another platform
+ * took it over. Nora takes it back when it's next used; then this retries
+ * by itself.
+ */
+const BrokerageWaiting = ({ reset }: Pick<ErrorComponentProps, "reset">) => {
+  const { reset: resetQuery } = useQueryErrorResetBoundary();
+  const { ready } = useBrokerageAccess();
+  useEffect(() => {
+    if (ready) {
+      resetQuery();
+      reset();
+    }
+  }, [ready, reset, resetQuery]);
+  return (
+    <div {...stylex.props(text[14], styles.error)}>
+      <span>
+        IBKR&rsquo;s trading session is in use on another platform. Nora
+        reconnects when you come back to it.
+      </span>
+    </div>
+  );
+};
+
 /** A boundary's fallback: the generic message with a retry. */
 export const ErrorNotice = ({ error, reset }: ErrorComponentProps) => {
   // Retrying can't find what doesn't exist: the route's not-found page shows instead.
   if (isNotFound(error)) {
     throw error;
+  }
+  if (error instanceof IbkrBrokerageUnavailableError) {
+    return <BrokerageWaiting reset={reset} />;
   }
   return (
     <div {...stylex.props(text[14], styles.error)}>

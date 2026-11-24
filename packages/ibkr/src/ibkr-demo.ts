@@ -1,4 +1,4 @@
-import type { Schema } from "effect";
+import { Option, Schema } from "effect";
 
 import type {
   IbkrAccountSummary,
@@ -153,10 +153,16 @@ const demoCompanies = new Map<
 
 const cents = (value: number) => Math.round(value * 100) / 100;
 
+/**
+ * The demo's positions in the shape live accounts send them: no ticker or
+ * name (`trsrv/secdef` has those), and today's gain or loss added when
+ * they're read, from the day's bars.
+ */
 export const ibkrDemoPositions = holdings.map((holding): IbkrPosition => ({
   acctId: accountId,
   conid: holding.conid,
   contractDesc: holding.ticker,
+  description: holding.ticker,
   position: holding.position,
   mktPrice: holding.mktPrice,
   mktValue: cents(holding.position * holding.mktPrice),
@@ -166,11 +172,7 @@ export const ibkrDemoPositions = holdings.map((holding): IbkrPosition => ({
   realizedPnl: 0,
   unrealizedPnl: cents(holding.position * (holding.mktPrice - holding.avgCost)),
   assetClass: "STK",
-  ticker: holding.ticker,
-  name: holding.name,
-  fullName: holding.ticker,
-  listingExchange: holding.listingExchange,
-  isin: holding.isin,
+  secType: "STK",
 }));
 
 const cash = 8420.55;
@@ -250,8 +252,12 @@ const reads = new Map<string, Schema.Json>([
   ["portfolio/accounts", ibkrDemoAccounts],
   [`portfolio/${accountId}/summary`, ibkrDemoSummary],
   [`portfolio/${accountId}/ledger`, ibkrDemoLedger],
-  [`portfolio/${accountId}/positions/0`, ibkrDemoPositions],
 ]);
+
+const notInDemo: IbkrPortalResponse = {
+  status: 404,
+  body: { error: "Not available in the demo." },
+};
 
 const holdingByConid = (value: string | null) =>
   holdings.find((holding) => String(holding.conid) === value);
@@ -430,20 +436,32 @@ const demoSnapshotStats = (holding: (typeof holdings)[number]) => {
 };
 
 /**
- * Today's profit and loss, measured from the same prior close as each
- * holding's day chart, so the header's move agrees with the asset pages.
+ * A holding's gain or loss today, measured from the same prior close as its
+ * day chart, so the dashboard's moves agree with the asset pages.
  */
+const demoDailyPnl = (holding: (typeof holdings)[number]) => {
+  const day = demoHistory(
+    holding,
+    new URLSearchParams("period=1d&bar=5min")
+  ).data;
+  const open = day[0]?.o;
+  return open === undefined ? 0 : holding.position * (holding.mktPrice - open);
+};
+
+/** The positions with today's gain or loss, as IBKR sends them. */
+const demoPositions = () =>
+  ibkrDemoPositions.map((position, index) => {
+    const holding = holdings[index];
+    return holding
+      ? { ...position, dailyPnl: cents(demoDailyPnl(holding)) }
+      : position;
+  });
+
+/** Today's profit and loss across the holdings. */
 const demoPnl = () => {
   let dpl = 0;
   for (const holding of holdings) {
-    const day = demoHistory(
-      holding,
-      new URLSearchParams("period=1d&bar=5min")
-    ).data;
-    const open = day[0]?.o;
-    if (open !== undefined) {
-      dpl += holding.position * (holding.mktPrice - open);
-    }
+    dpl += demoDailyPnl(holding);
   }
   let upl = 0;
   for (const position of ibkrDemoPositions) {
@@ -466,6 +484,7 @@ const dynamicReads: readonly (readonly [
   (match: RegExpExecArray, query: URLSearchParams) => Schema.Json | undefined,
 ])[] = [
   [/^iserver\/account\/pnl\/partitioned$/u, demoPnl],
+  [new RegExp(`^portfolio/${accountId}/positions/0$`, "u"), demoPositions],
   [
     /^iserver\/accounts$/u,
     () => ({
@@ -666,23 +685,131 @@ const writes = new Map<string, Schema.Json>([
   ],
 ]);
 
+/** `yyyyMMdd`, as `pa/performance` writes dates. */
+const performanceDate = (time: number) =>
+  new Date(time).toISOString().slice(0, 10).replaceAll("-", "");
+
+/**
+ * The account's value at each weekday's close for about the past 400
+ * trading days, newest first: a random walk (about 1% a day, drifting up)
+ * that ends at today's total, the same on every visit. Every period is cut
+ * from this one series, so they agree on any date they share.
+ */
+const demoNavHistory = (() => {
+  const random = seededRandom(7);
+  const days: { time: number; nav: number }[] = [];
+  let nav = netLiquidation;
+  for (let time = lastClose; days.length < 400; time -= dayMs) {
+    if (isWeekday(time)) {
+      days.push({ time, nav: cents(nav) });
+      nav /= 1 + 0.0007 + (random() - 0.5) * 0.02;
+    }
+  }
+  return days;
+})();
+
+/** Where a `pa/performance` period starts: its first date is after this. */
+const performanceStart = (period: string) => {
+  const end = new Date(lastClose);
+  if (period === "MTD") {
+    return Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1) - 1;
+  }
+  if (period === "YTD") {
+    return Date.UTC(end.getUTCFullYear(), 0, 1) - 1;
+  }
+  const days = new Map([
+    ["1D", 1],
+    ["7D", 7],
+    ["1M", 30],
+    ["3M", 91],
+    ["6M", 182],
+    ["12M", 365],
+    ["1Y", 365],
+  ]).get(period);
+  return days === undefined ? undefined : lastClose - days * dayMs;
+};
+
+const decodePerformanceRequest = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ period: Schema.String }))
+);
+
+/**
+ * `POST pa/performance`: the demo account's value and return over the
+ * period in the request's body, in IBKR's shape. Nothing is deposited or
+ * withdrawn, so the return is the value's own change.
+ */
+const demoPerformance = (body: string): IbkrPortalResponse => {
+  const request = Option.getOrUndefined(decodePerformanceRequest(body));
+  const start = request && performanceStart(request.period);
+  if (start === undefined) {
+    return { status: 400, body: { error: "Unknown period." } };
+  }
+  // Newest first, so the days after `start` come first.
+  const included = demoNavHistory
+    .filter((day) => day.time > start)
+    .toReversed();
+  const before = demoNavHistory[included.length] ?? included[0];
+  const dates = included.map((day) => performanceDate(day.time));
+  const startValue = before?.nav ?? netLiquidation;
+  return {
+    status: 200,
+    body: {
+      currencyType: "base",
+      rc: 0,
+      pm: "TWR",
+      nav: {
+        dates,
+        freq: "D",
+        data: [
+          {
+            id: accountId,
+            idType: "acct",
+            baseCurrency: currency,
+            navs: included.map((day) => day.nav),
+            startNAV: {
+              date: before ? performanceDate(before.time) : "",
+              val: startValue,
+            },
+          },
+        ],
+      },
+      cps: {
+        dates,
+        freq: "D",
+        data: [
+          {
+            id: accountId,
+            idType: "acct",
+            baseCurrency: currency,
+            returns: included.map(
+              (day) => Math.round((day.nav / startValue - 1) * 1e6) / 1e6
+            ),
+          },
+        ],
+      },
+    },
+  };
+};
+
 /**
  * Answers a Client Portal call for the demo account. Anything else gets a 404
  * in IBKR's error shape; nothing is ever sent to IBKR.
  */
 export const ibkrDemoPortalResponse = (
   method: string,
-  path: string
+  path: string,
+  requestBody = ""
 ): IbkrPortalResponse => {
   // Same normalisation as a URL would apply: no query, no leading slash.
   const [route = "", query = ""] = path.replace(/^\/+/u, "").split("?");
+  if (method === "POST" && route === "pa/performance") {
+    return demoPerformance(requestBody);
+  }
   const body =
     method === "GET"
       ? (reads.get(route) ?? dynamicRead(route, new URLSearchParams(query)))
       : writes.get(route);
-  return body === undefined
-    ? { status: 404, body: { error: "Not available in the demo." } }
-    : { status: 200, body };
+  return body === undefined ? notInDemo : { status: 200, body };
 };
 
 const lorem =
@@ -766,6 +893,43 @@ const newsReads: typeof fundamentalsReads = [
 ];
 
 /**
+ * `news2/search2?type=PORTFOLIO`: the latest headlines across the holdings,
+ * newest first, in the shape the Client Portal's search results take
+ * (`headLineContent` as HTML, `main_conid` the contract it's about). Other searches find nothing.
+ */
+const demoNewsSearch = (query: URLSearchParams): IbkrPortalResponse => ({
+  status: 200,
+  body: {
+    results:
+      query.get("type") === "PORTFOLIO"
+        ? Array.from({ length: 10 }, (_, index) => {
+            const holding = holdings[index % holdings.length];
+            const headline =
+              demoHeadlines[(index * 5) % demoHeadlines.length] ?? "";
+            return holding
+              ? [
+                  {
+                    newsId: `demo-portfolio-${index}`,
+                    headLineContent: headline
+                      .replace("{name}", holding.name)
+                      .replace("{ticker}", holding.ticker)
+                      .replaceAll("&", "&amp;"),
+                    source: index % 3 === 0 ? "DJ-GL" : "REUTERS",
+                    provider_name:
+                      index % 3 === 0
+                        ? "Dow Jones Global News"
+                        : "Reuters News",
+                    time: timestamp - (index * 3 + 1) * 3_600_000,
+                    main_conid: holding.conid,
+                  },
+                ]
+              : [];
+          }).flat()
+        : [],
+  },
+});
+
+/**
  * The demo's popular lists, as GlobalTrader reads one (`id`, `name`,
  * `description`, `source`, `image` and `instruments`). What IBKR's index of
  * lists looks like isn't known; the demo answers it with the lists
@@ -820,7 +984,7 @@ const demoImpactResponse = (
   const list = demoPopularLists.find(({ id }) => id === query.get("id"));
   return route === "popular/get" && list
     ? { status: 200, body: list }
-    : { status: 404, body: { error: "Not available in the demo." } };
+    : notInDemo;
 };
 
 /**
@@ -842,7 +1006,6 @@ const demoScreenerSnapshot = (): IbkrPortalResponse => {
   };
 };
 
-/** Demo research responses keep each of IBKR's namespaces separate. */
 /**
  * A few of the Market Screener's sectors, as `predefinedMetaData` lists
  * them. The demo's screener doesn't filter by them; it always sends the
@@ -875,13 +1038,16 @@ export const ibkrDemoResearchResponse = (
     if (method === "GET" && route === "scanner/predefinedMetaData") {
       return { status: 200, body: { sectors: demoSectors } };
     }
-    return { status: 404, body: { error: "Not available in the demo." } };
+    return notInDemo;
   }
   if (method !== "GET") {
-    return { status: 404, body: { error: "Not available in the demo." } };
+    return notInDemo;
   }
   if (namespace === "impact") {
     return demoImpactResponse(route, new URLSearchParams(query));
+  }
+  if (namespace === "news2" && route === "search2") {
+    return demoNewsSearch(new URLSearchParams(query));
   }
   for (const [pattern, read] of namespace === "news2"
     ? newsReads
@@ -892,5 +1058,5 @@ export const ibkrDemoResearchResponse = (
       return { status: 200, body: read(holding) };
     }
   }
-  return { status: 404, body: { error: "Not available in the demo." } };
+  return notInDemo;
 };
