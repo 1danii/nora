@@ -7,15 +7,14 @@ import type { IbkrLoginConfig } from "./ibkr-login-routes";
 
 /**
  * Every `/api/*` route, as one Effect HTTP router. Config is read from
- * `process.env`: varlock fills it in `vite dev`, and the Worker's env bindings
- * (set in `packages/infra/alchemy.run.ts`) fill it on Cloudflare.
+ * `process.env`, which Cloudflare fills from the Worker's vars and secrets
+ * (varlock injects them in `vite dev`).
  */
 const apiLayer = Layer.unwrap(
   Effect.gen(function* loadApiConfig() {
-    const origin = yield* Config.String("APP_ORIGIN");
     const secret = yield* Config.Redacted("SESSION_SECRET");
     // Demo unless the deployment says otherwise, so a missing variable can't
-    // turn real logins on. Varlock validates both in dev and on deploy.
+    // turn real logins on. Varlock validates both in dev.
     const mode = yield* Config.schema(
       IbkrLoginModeSchema,
       "IBKR_LOGIN_MODE"
@@ -30,7 +29,6 @@ const apiLayer = Layer.unwrap(
           }
         : { mode };
     return makeIbkrLoginRoutes({
-      origin,
       secret: Redacted.value(secret),
       login,
     });

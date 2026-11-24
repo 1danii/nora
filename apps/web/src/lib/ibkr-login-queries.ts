@@ -28,7 +28,7 @@ const fetchApi = createIsomorphicFn()
     // The app calling itself, so POSTs pass the same-origin check. A
     // cross-site page load can't abuse it: the SameSite=Strict session
     // cookie isn't sent with it.
-    headers.set("origin", process.env.APP_ORIGIN ?? new URL(page.url).origin);
+    headers.set("origin", new URL(page.url).origin);
     const response = await handleApiRequest(
       new Request(new URL(path, page.url), {
         method: init.method,

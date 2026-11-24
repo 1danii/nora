@@ -26,15 +26,13 @@
     "build": "turbo run build",
     "check-types": "turbo run check-types",
     "dev:web": "turbo run dev -F web --",
-    "dev:infra": "turbo run dev:infra -F @nora/infra --",
     "db:push": "turbo run db:push -F @nora/db --",
     "db:studio": "turbo run db:studio -F @nora/db --",
     "db:generate": "turbo run db:generate -F @nora/db --",
     "db:migrate": "turbo run db:migrate -F @nora/db --",
-    "deploy": "turbo run deploy -F @nora/infra --",
-    "destroy": "turbo run destroy -F @nora/infra --",
-    "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/infra/",
-    "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/infra/",
+    "deploy": "cd apps/web && bun run deploy",
+    "env:generate": "varlock codegen --path ./apps/web/",
+    "postinstall": "varlock codegen --path ./apps/web/",
     "check": "ultracite check",
     "test": "vitest run",
     "fix": "ultracite fix"
@@ -52,5 +50,18 @@
     "varlock": "catalog:",
     "vitest": "5.1.1"
   },
-  "packageManager": "bun@1.4.2"
+  "packageManager": "bun@1.4.2",
+  "cloudflare": {
+    "bindings": {
+      "IBKR_LOGIN_MODE": {
+        "description": "Keep **private** to log in with your own IBKR account. After deploying, turn on Cloudflare Access for this Worker (**Settings → Domains & Routes → Cloudflare Access**, then **All traffic**) so only you can open it. The site stays locked until you do. Choose **demo** instead for a public site that only shows a sample account."
+      },
+      "IBKR_ALLOWED_USERNAME": {
+        "description": "Your IBKR username. Only this account can log in."
+      },
+      "SESSION_SECRET": {
+        "description": "A random string of at least 32 characters. Create one with `openssl rand -base64 48`, or use any password generator."
+      }
+    }
+  }
 }

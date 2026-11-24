@@ -39,6 +39,11 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
+# Cloudflare
+.wrangler
+.dev.vars*
+!.dev.vars.example
+
 # Turbo
 .turbo
 .nx

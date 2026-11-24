@@ -113,7 +113,6 @@ const vendorMock = (
 const makeHandler = (fetch: typeof globalThis.fetch, username?: string) =>
   HttpRouter.toWebHandler(
     makeIbkrLoginRoutes({
-      origin,
       secret,
       login:
         username === undefined

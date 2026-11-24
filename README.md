@@ -1,5 +1,9 @@
 # nora
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora)
+
+The button deploys your own private Nora: real IBKR login for your username only. Turn on Cloudflare Access for the Worker after the first deploy (see [Deployment](#deployment)).
+
 This project was scaffolded with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack) and uses React, TanStack Start, and Effect v4.
 
 ## Features
@@ -45,20 +49,18 @@ bun run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser. The API is part of the same TanStack Start app, under `/api/*`.
 
-`bun run dev` runs `varlock run -- vite dev` in `apps/web`, so the settings in `apps/web/.env` reach the server code through `process.env`. It does not require Alchemy cloud credentials.
-
-`APP_ORIGIN` defaults to `http://localhost:3000`. Override it for deployed environments: POSTs to `/api` must come from that origin.
+`bun run dev` runs `vite dev` in `apps/web`. The app runs in the Workers runtime (`@cloudflare/vite-plugin`), and Varlock's plugin validates `apps/web/.env` and passes it to the Worker, where server code reads it from `process.env`.
 
 ## Effect API
 
-The app and infrastructure pin Effect packages to `4.1.4` and Alchemy to `2.0.0-beta.87`, with Drizzle ORM/Kit `1.0.0-rc.5-ab785fc`. Keep the Worker compatibility date at or before the `workerd` release Alchemy bundles. Upgrade these prereleases together and preserve the lockfile.
+The app pins Effect packages and Drizzle ORM/Kit prereleases. Upgrade them together and preserve the lockfile.
 
 - `apps/web/src/routes/api/$.ts` is a TanStack Start server route that hands every `/api/*` request to one Effect `HttpRouter` (`apps/web/src/api/api-handler.server.ts`), built once per server instance with `HttpRouter.toWebHandler`.
 - `apps/web/src/api/ibkr-login-routes.ts` defines the IBKR login routes at `/api/ibkr/*`. Settings are read with Effect `Config` from `process.env`.
 - The backend is Effect throughout: IBKR calls use Effect's `HttpClient` (with its cookie jar and redirect handling), and request bodies, vendor responses and cookie envelopes are decoded with Effect Schema.
 - `apps/web/src/lib/ibkr-login-queries.ts` calls those routes and decodes responses with the shared schemas from `@nora/ibkr/browser-schemas`. In the browser it uses `fetch`; during SSR it calls the Effect handler in-process with the page request's cookies.
 - The whole app uses `ssr: "data-only"`: route loaders run on the server for the first page load, components render only in the browser. `@tanstack/react-router-ssr-query` passes the loaded query data to the browser.
-- `packages/db/src/effect-database.ts` provides `EffectDatabase`. Nothing uses it yet. To add it, provide its layer to the API layer and bind Hyperdrive in `packages/infra/alchemy.run.ts`.
+- `packages/db/src/effect-database.ts` provides `EffectDatabase`. Nothing uses it yet. To add it, provide its layer to the API layer and add a Hyperdrive binding to `wrangler.jsonc`.
 
 `packages/ibkr` holds the IBKR browser login, response schemas, market stream and demo data. See [packages/ibkr/README.md](packages/ibkr/README.md).
 
@@ -68,7 +70,7 @@ References: [Effect v4 beta](https://effect.website/blog/releases/effect/40-beta
 
 `/login` now provides a minimal IBKR username/password and second-factor flow. `/` displays the login username and separately calls IBKR's login-service user API to test the session and show the returned user ID. These are the only two pages; there is no portfolio UI yet.
 
-The app's own `/api/ibkr/*` routes handle the login. Vendor cookies and unfinished 2FA state are retained in encrypted HttpOnly cookies (`Path=/`, so server-side loaders can read them), using a key derived from `SESSION_SECRET`. Only `IBKR_ALLOWED_USERNAME` may sign in. No database table, Durable Object, extra server, or OAuth key is needed. Set `APP_ORIGIN` to the actual web origin for the mutation origin check. Passwords are not persisted.
+The app's own `/api/ibkr/*` routes handle the login. Vendor cookies and unfinished 2FA state are retained in encrypted HttpOnly cookies (`Path=/`, so server-side loaders can read them), using a key derived from `SESSION_SECRET`. Only `IBKR_ALLOWED_USERNAME` may sign in. No database table, Durable Object, extra server, or OAuth key is needed. POSTs to `/api` must come from the same origin as the request. Passwords are not persisted.
 
 The implementation has offline protocol tests but has not been verified with a live IBKR login or deployed. The user API action may require additional vendor context; the homepage reports that test's failure separately from authentication. This does not yet establish access to portfolio endpoints.
 
@@ -80,7 +82,7 @@ Each app owns its environment schema in `.env.schema`. Varlock generates `src/en
 
 Import the generated `ENV` accessor in application code. The shared database package receives its configuration from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
 
-For Cloudflare, Alchemy loads and validates deployment inputs with `varlock/auto-load` in its Node/Bun deployment process. Worker code reads native bindings, while web clients use same-origin URLs and need no runtime environment bindings. Alchemy supplies resource URLs and managed database credentials. In-Worker Varlock protections are deferred until an official Alchemy integration is available; see [the non-Wrangler deployment guidance](https://varlock.dev/integrations/cloudflare/#non-wrangler-deploy-tools-alchemy-sst-pulumi).
+Varlock checks the env in local dev only. Deployed, the Worker reads its own vars and secrets from `process.env`: builds use the plain Cloudflare plugin, so whatever sets them (the Deploy button, the dashboard, `wrangler secret put`) is the source of truth.
 
 Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
 
@@ -88,30 +90,36 @@ Run standalone Node/Bun tools that use Varlock from the owning app directory so 
 
 ## Deployment
 
-### Alchemy
-
-- Target: one Cloudflare Worker that serves the TanStack Start app and its Effect API
-- Configure provider accounts: `cd packages/infra && bunx alchemy profile edit`
-- Cloudflare development: `bun run dev:infra` (use instead of the local Vite process; both use port 3000)
-- Deploy: bun run deploy
-- Destroy: bun run destroy
-
-`alchemy profile edit` stores the selected Axiom, Cloudflare, Neon, PlanetScale, and/or Prisma provider profiles under `~/.alchemy`; no provider-specific setup command is required by this scaffold.
+One Cloudflare Worker serves the TanStack Start app and its Effect API. The source config is `wrangler.jsonc` at the repo root (where the Deploy button reads it); `vite build` turns it into `apps/web/dist/server/wrangler.json`, which `bun run deploy` ships.
 
 The app stores nothing: IBKR data is fetched live, and the login session lives in encrypted cookies. The database package stays for later but is not deployed.
 
-Before deploying, configure `APP_ORIGIN` as the public web origin and supply `SESSION_SECRET` and `IBKR_ALLOWED_USERNAME`. Alchemy binds them to the Worker (the secret as a secret), where they appear in `process.env`.
+### Private (the Deploy button)
 
-Deploys are staged and default to a personal `dev_<username>` stage. For production, run the deploy with an explicit stage from `packages/infra`:
+1. Click the button above. It asks for `SESSION_SECRET` and `IBKR_ALLOWED_USERNAME` (from `.dev.vars.example`) and keeps `IBKR_LOGIN_MODE=private` from `wrangler.jsonc`. Field descriptions live in `package.json` under `cloudflare.bindings`.
+2. In the dashboard, open the Worker, then **Settings → Domains & Routes → Cloudflare Access**, and protect **All traffic** (not just previews) with a policy that lets you in.
+
+Until Access is on, every page and API call answers 403. The Worker checks each request for a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`, signed by your Access team), so it needs no Access settings of its own. The check catches a deployment left without Access; Access itself is what keeps others out.
+
+### Demo
+
+A public deployment that only offers the demo account. From your machine, with `wrangler login` done:
 
 ```bash
-cd packages/infra && bunx alchemy deploy --stage production
+cd apps/web
+bunx wrangler secret put SESSION_SECRET --name nora-demo
+bun run deploy -- --name nora-demo --var IBKR_LOGIN_MODE:demo
 ```
+
+### From your machine
+
+`bun run deploy` builds and deploys the private Worker named in `wrangler.jsonc`. Set secrets once with `bunx wrangler secret put <NAME>` from `apps/web`.
 
 ## Project Structure
 
 ```
 nora/
+├── wrangler.jsonc   # The Cloudflare Worker
 ├── apps/
 │   └── web/         # TanStack Start app, with the Effect API in src/api
 ├── packages/
@@ -124,7 +132,7 @@ nora/
 - `bun run dev`: Start all applications in development mode
 - `bun run build`: Build all applications
 - `bun run dev:web`: Start only the web application
-- `bun run dev:infra`: Start Alchemy's Cloudflare development workflow
+- `bun run deploy`: Build and deploy the Worker
 - `bun run check-types`: Check TypeScript types across all apps
 - `bun run db:push`: Push schema changes to database
 - `bun run db:generate`: Generate a SQL migration from schema changes

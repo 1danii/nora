@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "serve": "vite preview",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy --config dist/server/wrangler.json",
     "check-types": "vite build && tsc --noEmit",
-    "dev": "varlock run -- vite dev",
+    "dev": "vite dev",
     "env:generate": "varlock codegen"
   },
   "dependencies": {
@@ -40,6 +41,7 @@
     "varlock": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.1",
     "@nora/config": "workspace:*",
     "@radix-ui/colors": "^3.0.0",
     "@stylexjs/unplugin": "^0.19.2",
@@ -48,11 +50,13 @@
     "@tanstack/react-router-devtools": "1.167.4",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@varlock/cloudflare-integration": "^1.6.4",
     "@vitejs/plugin-react": "^6.3.0",
     "agentation": "^3.1.2",
     "oxc-transform-react": "~0.158.0",
     "typescript": "catalog:",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "wrangler": "^4.167.0"
   },
   "browserslist": [
     "last 2 Chrome versions",

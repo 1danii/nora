@@ -1,0 +1,18 @@
+// The Worker for apps/web. Vite builds it into apps/web/dist/server/wrangler.json,
+// and that generated file is what `bun run deploy` ships.
+{
+  "$schema": "./apps/web/node_modules/wrangler/config-schema.json",
+  "name": "nora",
+  "main": "./apps/web/src/server.ts",
+  "compatibility_date": "2026-10-26",
+  // process.env and the node:* modules that Effect and varlock use.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    // Real IBKR login for IBKR_ALLOWED_USERNAME, so this Worker must sit behind
+    // Cloudflare Access (Settings → Domains & Routes → Cloudflare Access, all
+    // traffic). Without it every request gets a 403. Set to "demo" for a public
+    // deployment that only offers the demo account.
+    "IBKR_LOGIN_MODE": "private",
+  },
+}

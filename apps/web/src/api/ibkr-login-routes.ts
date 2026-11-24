@@ -170,12 +170,39 @@ export type IbkrLoginConfig =
   | { readonly mode: "demo" }
   | { readonly mode: "private"; readonly allowedUsername: string };
 
+/** `secure` marks cookies Secure: every deployment, but not http dev. */
+const respond = (
+  body: RouteBody,
+  status: number,
+  cookies: readonly IbkrCookieWrite[] = [],
+  secure = true
+) => {
+  let response = HttpServerResponse.jsonUnsafe(body, {
+    status,
+    headers: noStoreHeaders,
+  });
+  for (const write of cookies) {
+    response = HttpServerResponse.setCookieUnsafe(
+      response,
+      write.name,
+      write.value,
+      {
+        path: ibkrCookiePath,
+        httpOnly: true,
+        sameSite: "strict",
+        secure,
+        maxAge: Duration.seconds(write.maxAgeSeconds),
+      }
+    );
+  }
+  return response;
+};
+
 /**
  * The IBKR browser login API. Session state lives only in encrypted HttpOnly
  * cookies; vendor response bodies and credentials never reach logs or clients.
  */
 export const makeIbkrLoginRoutes = (options: {
-  readonly origin: string;
   readonly secret: string;
   readonly login: IbkrLoginConfig;
   /**
@@ -189,39 +216,11 @@ export const makeIbkrLoginRoutes = (options: {
       const cookie = yield* makeIbkrSessionCookie(options.secret);
       // Captured once so handlers need no per-request HttpClient.
       const httpClient = yield* HttpClient.HttpClient;
-      const { origin, protocol } = new URL(options.origin);
-      const secure = protocol === "https:";
       const { login } = options;
       const allowedUsername =
         login.mode === "private"
           ? login.allowedUsername.trim().toLowerCase()
           : undefined;
-
-      const respond = (
-        body: RouteBody,
-        status: number,
-        cookies: readonly IbkrCookieWrite[] = []
-      ) => {
-        let response = HttpServerResponse.jsonUnsafe(body, {
-          status,
-          headers: noStoreHeaders,
-        });
-        for (const write of cookies) {
-          response = HttpServerResponse.setCookieUnsafe(
-            response,
-            write.name,
-            write.value,
-            {
-              path: ibkrCookiePath,
-              httpOnly: true,
-              sameSite: "strict",
-              secure,
-              maxAge: Duration.seconds(write.maxAgeSeconds),
-            }
-          );
-        }
-        return response;
-      };
 
       /**
        * Runs a route. Login failures with an internal reason reach the client
@@ -234,8 +233,17 @@ export const makeIbkrLoginRoutes = (options: {
       ) =>
         effect.pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
-          Effect.map(({ body, status, cookies }) =>
-            respond(body, status ?? 200, cookies)
+          Effect.flatMap(({ body, status, cookies }) =>
+            Effect.gen(function* respondToRequest() {
+              const request = yield* HttpServerRequest.HttpServerRequest;
+              const { protocol } = new URL(request.originalUrl);
+              return respond(
+                body,
+                status ?? 200,
+                cookies,
+                protocol === "https:"
+              );
+            })
           ),
           Effect.catchTag("IbkrLoginError", (failure) => {
             const internal =
@@ -268,9 +276,13 @@ export const makeIbkrLoginRoutes = (options: {
         }
         return snapshot;
       });
+      /**
+       * Mutating requests must come from a page on this same origin. Compared
+       * with the request's own URL, so it holds on any domain the Worker serves.
+       */
       const requireSameOrigin = Effect.gen(function* requireSameOrigin() {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        if (request.headers.origin !== origin) {
+        if (request.headers.origin !== new URL(request.originalUrl).origin) {
           return yield* Effect.fail(
             ibkrLoginError("Forbidden", ibkrGenericLoginMessage)
           );
@@ -375,7 +387,7 @@ export const makeIbkrLoginRoutes = (options: {
           "/api/ibkr/stream/quote",
           Effect.gen(function* quoteStream() {
             const request = yield* HttpServerRequest.HttpServerRequest;
-            const query = new URL(request.url, origin).searchParams;
+            const query = new URL(request.originalUrl).searchParams;
             const conid = query.get("conid") ?? "";
             if (!/^\d{1,12}$/u.test(conid)) {
               return yield* Effect.fail(
