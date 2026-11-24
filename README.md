@@ -1,6 +1,4 @@
-# nora
-
-A clean client for Interactive Brokers. Same account, a much calmer interface, built on the same APIs as IBKR's own apps.
+![nora: a clean client for Interactive Brokers. Same account, a much calmer interface, built on the same APIs as IBKR's own apps.](.github/assets/banner.jpg)
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora)
 

@@ -1,9 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { createIsomorphicFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { DialRoot, useDialKit } from "dialkit";
 
 import dashboard1x from "@/assets/landing/dashboard-1x.webp?url";
 import dashboard2x from "@/assets/landing/dashboard-2x.webp?url";
+import ogImage from "@/assets/landing/og.jpg?url";
 import { NoraLogo } from "@/components/brand/nora-logo";
 import {
   BacklitBlock,
@@ -189,10 +192,41 @@ const Home = () => {
   );
 };
 
+const title = "Nora";
+const description =
+  "A clean client for Interactive Brokers. Same account, a much calmer interface, built on the same APIs as IBKR’s own apps.";
+
+/**
+ * This deployment's origin. Each person deploys nora on their own domain, and
+ * link previews need the image's absolute URL.
+ */
+const getOrigin = createIsomorphicFn()
+  .server(() => new URL(getRequest().url).origin)
+  .client(() => window.location.origin);
+
 export const Route = createFileRoute("/_landing/")({
-  head: () => ({
-    links: [{ rel: "stylesheet", href: dialkitCss }],
-    meta: [{ title: "Nora" }],
-  }),
+  loader: () => ({ origin: getOrigin() }),
+  head: ({ loaderData }) => {
+    const image = new URL(ogImage, loaderData?.origin).href;
+    return {
+      links: [{ rel: "stylesheet", href: dialkitCss }],
+      meta: [
+        { title },
+        { name: "description", content: description },
+        { property: "og:type", content: "website" },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        { property: "og:image", content: image },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        {
+          property: "og:image:alt",
+          content: "nora: a clean client for Interactive Brokers",
+        },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:image", content: image },
+      ],
+    };
+  },
   component: Home,
 });
