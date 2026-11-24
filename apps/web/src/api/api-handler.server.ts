@@ -12,7 +12,6 @@ import type { IbkrLoginConfig } from "./ibkr-login-routes";
  */
 const apiLayer = Layer.unwrap(
   Effect.gen(function* loadApiConfig() {
-    const secret = yield* Config.Redacted("SESSION_SECRET");
     // Demo unless the deployment says otherwise, so a missing variable can't
     // turn real logins on. Varlock validates both in dev.
     const mode = yield* Config.schema(
@@ -26,12 +25,11 @@ const apiLayer = Layer.unwrap(
             allowedUsername: yield* Config.NonEmptyString(
               "IBKR_ALLOWED_USERNAME"
             ),
+            // Encrypts session cookies that can hold IBKR's; a demo has none.
+            secret: Redacted.value(yield* Config.Redacted("SESSION_SECRET")),
           }
         : { mode };
-    return makeIbkrLoginRoutes({
-      secret: Redacted.value(secret),
-      login,
-    });
+    return makeIbkrLoginRoutes({ login });
   })
 ).pipe(Layer.provide(FetchHttpClient.layer));
 

@@ -1,6 +1,12 @@
-import { IbkrBrowserSnapshotSchema } from "@nora/ibkr/browser-login";
+import {
+  emptyIbkrBrowserSnapshot,
+  IbkrBrowserSnapshotSchema,
+} from "@nora/ibkr/browser-login";
 import type { IbkrBrowserSnapshot } from "@nora/ibkr/browser-login";
+import { ibkrDemoOnlyMessage } from "@nora/ibkr/browser-schemas";
+import { ibkrDemoUsername } from "@nora/ibkr/demo";
 import { ibkrLoginError } from "@nora/ibkr/login-error";
+import type { IbkrLoginError } from "@nora/ibkr/login-error";
 import { Clock, Effect, Schema } from "effect";
 
 export const ibkrCookieName = "nora_ibkr";
@@ -41,6 +47,31 @@ export interface IbkrCookieWrite {
   readonly value: string;
   readonly maxAgeSeconds: number;
 }
+
+/** Reads and writes the session snapshot kept in the browser's cookies. */
+export interface IbkrSessionCookie {
+  /** Returns null for a missing, invalid or expired cookie. */
+  readonly read: (
+    cookies: Readonly<Record<string, string>>
+  ) => Effect.Effect<IbkrBrowserSnapshot | null>;
+  readonly write: (
+    snapshot: IbkrBrowserSnapshot
+  ) => Effect.Effect<readonly IbkrCookieWrite[], IbkrLoginError>;
+}
+
+/** How long a demo session lasts without activity, like a real one. */
+export const ibkrDemoWindowMs = 30 * 60_000;
+
+/** A signed-in demo session: no IBKR cookies, just the authenticated status. */
+export const ibkrDemoSnapshot = (expiresAt: number): IbkrBrowserSnapshot => ({
+  ...emptyIbkrBrowserSnapshot,
+  status: {
+    state: "authenticated",
+    username: ibkrDemoUsername,
+    expiresAt,
+    demo: true,
+  },
+});
 
 /** Deletes every chunk, for sign-out. */
 export const clearIbkrSessionCookie = (): readonly IbkrCookieWrite[] =>
@@ -163,10 +194,52 @@ export const makeIbkrSessionCookie = Effect.fn("IbkrSessionCookie.make")(
       );
     });
 
-    return { read, write };
+    return { read, write } satisfies IbkrSessionCookie;
   }
 );
 
-export type IbkrSessionCookie = Effect.Success<
-  ReturnType<typeof makeIbkrSessionCookie>
->;
+const demoPrefix = "demo.";
+
+/**
+ * The session cookie of a demo deployment, which needs no secret: it holds
+ * only a demo session's expiry, as `demo.<expiresAt>`, and always reads back
+ * as a demo session. Forging it can at most keep a demo session open for
+ * another window; it can never carry IBKR cookies or reach IBKR. Any other
+ * snapshot is refused rather than stored.
+ */
+export const ibkrDemoSessionCookie: IbkrSessionCookie = {
+  read: (cookies) =>
+    Effect.gen(function* readIbkrDemoSessionCookie() {
+      const now = yield* Clock.currentTimeMillis;
+      const value = cookies[ibkrCookieName];
+      if (!value?.startsWith(demoPrefix)) {
+        return null;
+      }
+      const expiresAt = Number(value.slice(demoPrefix.length));
+      return Number.isSafeInteger(expiresAt) &&
+        expiresAt > now &&
+        expiresAt <= now + ibkrDemoWindowMs
+        ? ibkrDemoSnapshot(expiresAt)
+        : null;
+    }),
+  write: Effect.fn("IbkrDemoSessionCookie.write")(function* write(
+    snapshot: IbkrBrowserSnapshot
+  ) {
+    const { demo, expiresAt } = snapshot.status;
+    if (!demo || expiresAt === undefined) {
+      return yield* Effect.fail(
+        ibkrLoginError("Forbidden", ibkrDemoOnlyMessage)
+      );
+    }
+    const now = yield* Clock.currentTimeMillis;
+    const capped = Math.min(Math.floor(expiresAt), now + ibkrDemoWindowMs);
+    return [
+      {
+        name: ibkrCookieName,
+        value: `${demoPrefix}${capped}`,
+        maxAgeSeconds: Math.max(0, Math.floor((capped - now) / 1000)),
+      },
+      ...clearIbkrSessionCookie().slice(1),
+    ];
+  }),
+};

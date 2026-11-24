@@ -62,7 +62,7 @@
         "description": "Your IBKR username. Only this account can log in."
       },
       "SESSION_SECRET": {
-        "description": "A random string of at least 32 characters. Create one with `openssl rand -base64 48`, or use any password generator."
+        "description": "A random string of at least 32 characters. Create one with `openssl rand -base64 48`, or use any password generator. Only **private** uses it; a **demo** site ignores it."
       }
     }
   }

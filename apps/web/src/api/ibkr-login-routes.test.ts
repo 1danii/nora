@@ -113,11 +113,10 @@ const vendorMock = (
 const makeHandler = (fetch: typeof globalThis.fetch, username?: string) =>
   HttpRouter.toWebHandler(
     makeIbkrLoginRoutes({
-      secret,
       login:
         username === undefined
           ? { mode: "demo" }
-          : { mode: "private", allowedUsername: username },
+          : { mode: "private", allowedUsername: username, secret },
       demoLatencyMs: 0,
     }).pipe(
       Layer.provide(FetchHttpClient.layer),
@@ -329,6 +328,56 @@ describe("IBKR login API", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: ibkrDemoOnlyMessage });
     expect(response.headers.getSetCookie()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("runs the demo without a secret and never turns a cookie into a real session", async () => {
+    const fetch = vendorMock();
+    const handler = makeHandler(fetch);
+    const login = await handler(
+      new Request(`${origin}/api/ibkr/demo`, {
+        method: "POST",
+        headers: { Origin: origin },
+      })
+    );
+    expect(await login.json()).toMatchObject({ demo: true });
+    const cookies = login.headers
+      .getSetCookie()
+      .filter((value) => !value.includes("Max-Age=0"))
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const session = await handler(
+      new Request(`${origin}/api/ibkr/session`, {
+        headers: { Cookie: cookies },
+      })
+    );
+    expect(await session.json()).toMatchObject({
+      state: "authenticated",
+      demo: true,
+    });
+    // A private deployment's encrypted cookie means nothing here.
+    const privateLogin = await makeHandler(
+      vendorMock(),
+      allowedUsername
+    )(startRequest());
+    const privateCookies = privateLogin.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const forged = await handler(
+      new Request(`${origin}/api/ibkr/portal/tickle`, {
+        headers: { Cookie: privateCookies },
+      })
+    );
+    expect(forged.status).toBe(401);
+    // Login steps that would contact IBKR refuse a demo session.
+    const poll = await handler(
+      new Request(`${origin}/api/ibkr/poll`, {
+        method: "POST",
+        headers: { Origin: origin, Cookie: cookies },
+      })
+    );
+    expect(poll.status).toBe(409);
     expect(fetch).not.toHaveBeenCalled();
   });
 

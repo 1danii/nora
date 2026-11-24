@@ -3,7 +3,12 @@ import type { IbkrBrowserSnapshot } from "@nora/ibkr/browser-login";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { makeIbkrSessionCookie } from "./ibkr-session-cookie";
+import {
+  ibkrDemoSessionCookie,
+  ibkrDemoSnapshot,
+  ibkrDemoWindowMs,
+  makeIbkrSessionCookie,
+} from "./ibkr-session-cookie";
 import type { IbkrCookieWrite } from "./ibkr-session-cookie";
 
 const secret = "synthetic-test-secret-with-32-characters";
@@ -72,5 +77,37 @@ describe("IBKR encrypted session cookies", () => {
       )
     ).toBeNull();
     expect(writes.every((write) => write.value.length < 4000)).toBe(true);
+  });
+});
+
+const readDemo = (value: string) =>
+  Effect.runPromise(ibkrDemoSessionCookie.read({ nora_ibkr: value }));
+
+describe("IBKR demo session cookie", () => {
+  it("round-trips a demo session", async () => {
+    const snapshot = ibkrDemoSnapshot(Date.now() + 60_000);
+    const writes = await Effect.runPromise(
+      ibkrDemoSessionCookie.write(snapshot)
+    );
+    expect(
+      await Effect.runPromise(ibkrDemoSessionCookie.read(sentBack(writes)))
+    ).toEqual(snapshot);
+  });
+
+  it("refuses to store anything but a demo session", async () => {
+    const exit = await Effect.runPromiseExit(
+      ibkrDemoSessionCookie.write(withCookie("XYZAB", "upstream"))
+    );
+    expect(exit._tag).toBe("Failure");
+  });
+
+  it("rejects malformed, expired and over-long values", async () => {
+    const now = Date.now();
+    expect(await readDemo("1.encrypted-token")).toBeNull();
+    expect(await readDemo("demo.not-a-number")).toBeNull();
+    expect(await readDemo(`demo.${now - 1000}`)).toBeNull();
+    expect(
+      await readDemo(`demo.${now + ibkrDemoWindowMs + 60_000}`)
+    ).toBeNull();
   });
 });

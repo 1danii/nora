@@ -30,7 +30,6 @@ import type {
 import {
   ibkrDemoResearchResponse,
   ibkrDemoPortalResponse,
-  ibkrDemoUsername,
 } from "@nora/ibkr/demo";
 import { ibkrLoginError } from "@nora/ibkr/login-error";
 import type {
@@ -51,9 +50,12 @@ import {
 import {
   clearIbkrSessionCookie,
   ibkrCookiePath,
+  ibkrDemoSessionCookie,
+  ibkrDemoSnapshot,
+  ibkrDemoWindowMs,
   makeIbkrSessionCookie,
 } from "./ibkr-session-cookie";
-import type { IbkrCookieWrite } from "./ibkr-session-cookie";
+import type { IbkrCookieWrite, IbkrSessionCookie } from "./ibkr-session-cookie";
 
 const statusByReason: Record<IbkrLoginErrorReason, number> = {
   BadRequest: 400,
@@ -68,19 +70,8 @@ const internalReasons = new Set<IbkrLoginErrorReason>([
   "Upstream",
 ]);
 
-/** How long a demo session lasts without activity, like a real one. */
-const demoWindowMs = 30 * 60_000;
-
-/** A signed-in demo session: no IBKR cookies, just the authenticated status. */
-const demoSnapshot = (now: number): IbkrBrowserSnapshot => ({
-  ...emptyIbkrBrowserSnapshot,
-  status: {
-    state: "authenticated",
-    username: ibkrDemoUsername,
-    expiresAt: now + demoWindowMs,
-    demo: true,
-  },
-});
+/** A demo session starting or extended at `now`. */
+const demoSnapshot = (now: number) => ibkrDemoSnapshot(now + ibkrDemoWindowMs);
 
 /**
  * The quote fields the live stream relays: last, change, change %, prior
@@ -163,12 +154,17 @@ const runInSession = <A, R>(
 
 /**
  * Who may log in with a real IBKR account. A demo deployment refuses every
- * real login; a private one only the allowed username, so the API is never
- * an open login relay.
+ * real login, so its sessions are demo ones and need no secret; a private
+ * one only the allowed username, so the API is never an open login relay.
+ * `secret` encrypts the private deployment's session cookie.
  */
 export type IbkrLoginConfig =
   | { readonly mode: "demo" }
-  | { readonly mode: "private"; readonly allowedUsername: string };
+  | {
+      readonly mode: "private";
+      readonly allowedUsername: string;
+      readonly secret: string;
+    };
 
 /** `secure` marks cookies Secure: every deployment, but not http dev. */
 const respond = (
@@ -199,11 +195,11 @@ const respond = (
 };
 
 /**
- * The IBKR browser login API. Session state lives only in encrypted HttpOnly
- * cookies; vendor response bodies and credentials never reach logs or clients.
+ * The IBKR browser login API. Session state lives only in HttpOnly cookies,
+ * encrypted whenever they can hold IBKR's; vendor response bodies and
+ * credentials never reach logs or clients.
  */
 export const makeIbkrLoginRoutes = (options: {
-  readonly secret: string;
   readonly login: IbkrLoginConfig;
   /**
    * How long each demo portal call takes, in ms. The fixtures answer
@@ -213,10 +209,13 @@ export const makeIbkrLoginRoutes = (options: {
 }) =>
   Layer.unwrap(
     Effect.gen(function* buildIbkrLoginRoutes() {
-      const cookie = yield* makeIbkrSessionCookie(options.secret);
+      const { login } = options;
+      const cookie: IbkrSessionCookie =
+        login.mode === "private"
+          ? yield* makeIbkrSessionCookie(login.secret)
+          : ibkrDemoSessionCookie;
       // Captured once so handlers need no per-request HttpClient.
       const httpClient = yield* HttpClient.HttpClient;
-      const { login } = options;
       const allowedUsername =
         login.mode === "private"
           ? login.allowedUsername.trim().toLowerCase()
@@ -296,13 +295,21 @@ export const makeIbkrLoginRoutes = (options: {
           cookies: yield* cookie.write(step.next),
         } satisfies RouteResult;
       });
-      /** A POST step on an existing login: same origin, live session, saved afterwards. */
+      /**
+       * A POST step on a pending real login: same origin, live session, saved
+       * afterwards. A demo session has no login at IBKR to continue.
+       */
       const sessionStep = <A extends RouteBody, R>(
         effect: Effect.Effect<A, IbkrLoginError, R | IbkrBrowserSession>
       ) =>
         Effect.gen(function* runSessionStep() {
           yield* requireSameOrigin;
           const snapshot = yield* requireSnapshot;
+          if (snapshot.status.demo) {
+            return yield* Effect.fail(
+              ibkrLoginError("Conflict", "Sign out of the demo first.")
+            );
+          }
           return yield* persisted(yield* runInSession(snapshot, effect));
         });
 
