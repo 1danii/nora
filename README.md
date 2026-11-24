@@ -1,139 +1,128 @@
 # nora
 
+A clean client for Interactive Brokers. Same account, a much calmer interface, built on the same APIs as IBKR's own apps.
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora)
 
-The button deploys your own private Nora: real IBKR login for your username only. Turn on Cloudflare Access for the Worker after the first deploy (see [Deployment](#deployment)).
+The button deploys your own private nora on your Cloudflare account. One step remains after it: [turn on Cloudflare Access](#2-turn-on-cloudflare-access). Prefer an AI agent to do it all? [Copy the prompt below](#deploy-with-an-agent).
 
-This project was scaffolded with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack) and uses React, TanStack Start, and Effect v4.
+## What it is
 
-## Features
+nora is an alternative front end for your existing IBKR account. It talks to the same endpoints IBKR Mobile, GlobalTrader and the Client Portal use, so the numbers match what IBKR shows you.
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Start** - SSR framework with TanStack Router
-- **StyleX** - Compile-time CSS-in-JS with Radix color tokens
-- **Effect v4 prerelease** - HTTP server, HTTP client, schemas and scoped database services
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - your IBKR login (username, password and 2FA), kept in an encrypted HttpOnly cookie
-- **Turborepo** - Optimized monorepo build system
+- **Account**: balance, buying power, available funds, excess liquidity and cash by currency
+- **Holdings**: positions and performance
+- **Assets**: price charts, after-hours prices, analyst ratings and price targets, company info, news
+- **Explore**: market movers and search across listings
+- **Demo**: a sample account to try without logging in
 
-## Getting Started
+Trading isn't in nora yet. It's an early work in progress.
 
-First, install the dependencies:
+### How your account stays yours
+
+- **Your deployment, your account.** Each person runs their own copy on their own Cloudflare account. Only the one IBKR username you set can log in.
+- **Locked behind Cloudflare Access.** A private deployment answers every request with 403 until Cloudflare Access protects it, so only you can open it.
+- **Nothing stored.** You log in with your IBKR username, password and 2FA, the same as IBKR's own apps. The session lives in an encrypted cookie in your browser, the password is never saved, and IBKR data is fetched live. There is no database.
+
+nora isn't affiliated with or endorsed by Interactive Brokers.
+
+## Deploy with an agent
+
+Paste this into a coding agent that can run commands on your machine (Claude Code, Codex, Cursor and similar). It asks you for what it needs, deploys your private nora, checks that Access protects it and, if you choose a fork, sets up automatic deploys from your GitHub.
+
+```text
+Deploy a private copy of nora (https://github.com/1danii/nora), a web client for Interactive Brokers, to my Cloudflare account as a Cloudflare Worker. Work through the steps in order; each ends on a check, and a step is done only when its check passes. Show me the command output that proves each check.
+
+Secrets: generate SESSION_SECRET yourself and pipe it straight into Wrangler, so it never appears in the chat, in a file or in git. My IBKR password and 2FA are typed only into the deployed site, so this setup needs only my IBKR username.
+
+1. Ask me, in one message:
+   - my IBKR username (the one I log in to IBKR with; only it will be able to log in)
+   - a name for the Worker (default: nora). It becomes the address https://<name>.<my-subdomain>.workers.dev
+   - how to keep the code. Fork (recommended when the GitHub CLI `gh` is installed and logged in): a fork on my GitHub that Cloudflare redeploys on every push, so updating is GitHub's "Sync fork" button. Local: a plain clone on this machine that I redeploy myself.
+   Check: you have all three answers. Call the Worker name NAME below.
+
+2. Get the code. Make sure git and bun are installed (install bun from https://bun.sh if missing, after asking me). Fork: `gh repo fork 1danii/nora --clone`. Local: `git clone https://github.com/1danii/nora`. Run `bun install` in the new folder, and every later command from there.
+   Check: `bun install` finished without errors.
+
+3. Log in to Cloudflare. Run `bunx wrangler login` and tell me to approve it in the browser window it opens. Then run `bunx wrangler whoami`. If it lists more than one account, ask me which one to use and set CLOUDFLARE_ACCOUNT_ID to its ID for every later command.
+   Check: `bunx wrangler whoami` shows me logged in, with one account chosen.
+
+4. Build and deploy: `bun run build && bun run deploy -- --name NAME`. The config already sets IBKR_LOGIN_MODE=private; keep it.
+   Check: the deploy output prints the Worker's workers.dev URL. Call it URL below.
+
+5. Set the two secrets on the Worker:
+   - `openssl rand -base64 48 | tr -d '\n' | bunx wrangler secret put SESSION_SECRET --name NAME`
+   - `printf '%s' '<my IBKR username>' | bunx wrangler secret put IBKR_ALLOWED_USERNAME --name NAME`
+   Check: `bunx wrangler secret list --name NAME` lists both SESSION_SECRET and IBKR_ALLOWED_USERNAME.
+
+6. Confirm the Worker is locked. Run `curl -s -o /dev/null -w '%{http_code}\n' URL`.
+   Check: it prints 403. That is the Worker refusing traffic that hasn't come through Cloudflare Access, which is correct at this point.
+
+7. Turn on Cloudflare Access. This step is in the dashboard, so walk me through it and wait for me to say it's done:
+   - Open https://dash.cloudflare.com, go to Workers & Pages, and open the NAME Worker.
+   - Settings → Domains & Routes → Cloudflare Access: enable it and choose to protect All traffic (not only preview URLs).
+   - Make sure the Access policy allows my email address, so I can get in.
+   Check: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' URL` prints a 302 redirect to a *.cloudflareaccess.com address. If it still prints 403, Access isn't covering all traffic yet: help me fix it and run the check again.
+
+8. Fork only: connect the fork to Workers Builds. Walk me through it in the dashboard and wait for me:
+   - In the NAME Worker: Settings → Builds → Connect, choose GitHub, install or authorize the Cloudflare app if asked, and pick my fork with branch main.
+   - Build command: `bun run build`. Deploy command: `bun run deploy -- --name NAME` (replacing the default `npx wrangler deploy`, which would ship the source config instead of the build). Leave the root directory empty.
+   Then trigger a build: `git commit --allow-empty -m "Trigger first Workers Build" && git push`.
+   Check: I confirm the build for that commit succeeded in the Worker's Deployments, and afterwards `bunx wrangler secret list --name NAME` still lists both secrets and the curl from step 7 still prints the 302 to *.cloudflareaccess.com.
+
+9. Tell me:
+   - URL, and that I open it, pass the Cloudflare Access login with my email, then log in with my IBKR username, password and 2FA
+   - how to update. Fork: press "Sync fork" on my fork's GitHub page, and Cloudflare redeploys. Local: from this folder, `git pull && bun install && bun run build && bun run deploy -- --name NAME`
+```
+
+## Deploy by hand
+
+### 1. Deploy the Worker
+
+**With the button.** Click [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/1danii/nora). It copies the repo to your GitHub, sets up Workers Builds and asks for two values:
+
+- `IBKR_ALLOWED_USERNAME`: your IBKR username. Only this account can log in.
+- `SESSION_SECRET`: a random string of at least 32 characters, for example from `openssl rand -base64 48`.
+
+Keep `IBKR_LOGIN_MODE` set to `private`. If you change the Workers Builds settings later, the deploy command must stay `bun run deploy`: the default `npx wrangler deploy` reads the source config instead of the built one.
+
+**From your machine.** With [Bun](https://bun.sh) installed:
 
 ```bash
+git clone https://github.com/1danii/nora && cd nora
 bun install
+bunx wrangler login
+bun run build && bun run deploy
+openssl rand -base64 48 | tr -d '\n' | bunx wrangler secret put SESSION_SECRET
+bunx wrangler secret put IBKR_ALLOWED_USERNAME   # type your IBKR username
 ```
 
-## Database Setup
+This deploys a Worker named `nora`. Add `-- --name <name>` to `bun run deploy`, and `--name <name>` to each `wrangler secret put`, to pick another name.
 
-This project uses PostgreSQL with Drizzle ORM.
+### 2. Turn on Cloudflare Access
 
-1. Make sure you have a PostgreSQL database set up.
-2. If `apps/web/.env` does not exist, copy it from `apps/web/.env.example`. Set `SESSION_SECRET` to a random secret of at least 32 characters and `IBKR_ALLOWED_USERNAME` to your IBKR username. `DATABASE_URL` is only needed for the Drizzle commands.
+Until you do, every page answers 403.
 
-3. Apply the schema to your database:
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com), open **Workers & Pages** and then your Worker.
+2. Go to **Settings → Domains & Routes → Cloudflare Access**, enable it and protect **All traffic** (not only previews).
+3. Make sure the Access policy lets your email in.
 
-```bash
-bun run db:push
-```
+Open the Worker's URL: Cloudflare asks for your email first, then nora shows its IBKR login.
 
-Local databases initialized with `db:push` do not have Drizzle migration history. Keep using `db:push` for those databases; use `db:migrate` on a fresh database managed by migrations from the start.
+The Worker checks every request for a valid Cloudflare Access token, so it needs no Access settings of its own. That check catches a deployment left without Access; Access itself is what keeps others out.
 
-Then, run the development server:
+### Update
 
-```bash
-bun run dev
-```
+Deployments connected to GitHub redeploy on every push to your copy. A fork updates with **Sync fork** on GitHub. The button's copy isn't a fork, so pull this repo into it with git (`git pull https://github.com/1danii/nora main`, then push). Without GitHub, from your machine, run `git pull && bun install && bun run build && bun run deploy`.
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. The API is part of the same TanStack Start app, under `/api/*`.
+### Public demo
 
-`bun run dev` runs `vite dev` in `apps/web`. The app runs in the Workers runtime (`@cloudflare/vite-plugin`), and Varlock's plugin validates `apps/web/.env` and passes it to the Worker, where server code reads it from `process.env`.
-
-## Effect API
-
-The app pins Effect packages and Drizzle ORM/Kit prereleases. Upgrade them together and preserve the lockfile.
-
-- `apps/web/src/routes/api/$.ts` is a TanStack Start server route that hands every `/api/*` request to one Effect `HttpRouter` (`apps/web/src/api/api-handler.server.ts`), built once per server instance with `HttpRouter.toWebHandler`.
-- `apps/web/src/api/ibkr-login-routes.ts` defines the IBKR login routes at `/api/ibkr/*`. Settings are read with Effect `Config` from `process.env`.
-- The backend is Effect throughout: IBKR calls use Effect's `HttpClient` (with its cookie jar and redirect handling), and request bodies, vendor responses and cookie envelopes are decoded with Effect Schema.
-- `apps/web/src/lib/ibkr-login-queries.ts` calls those routes and decodes responses with the shared schemas from `@nora/ibkr/browser-schemas`. In the browser it uses `fetch`; during SSR it calls the Effect handler in-process with the page request's cookies.
-- The whole app uses `ssr: "data-only"`: route loaders run on the server for the first page load, components render only in the browser. `@tanstack/react-router-ssr-query` passes the loaded query data to the browser.
-- `packages/db/src/effect-database.ts` provides `EffectDatabase`. Nothing uses it yet. To add it, provide its layer to the API layer and add a Hyperdrive binding to `wrangler.jsonc`.
-
-`packages/ibkr` holds the IBKR browser login, response schemas, market stream and demo data. See [packages/ibkr/README.md](packages/ibkr/README.md).
-
-References: [Effect v4 beta](https://effect.website/blog/releases/effect/40-beta) and [Drizzle Effect PostgreSQL](https://orm.drizzle.team/docs/connect-effect-postgres). The installed package source (`bunx opensrc path effect`) is authoritative for API signatures.
-
-## App Routes
-
-`/login` now provides a minimal IBKR username/password and second-factor flow. `/` displays the login username and separately calls IBKR's login-service user API to test the session and show the returned user ID. These are the only two pages; there is no portfolio UI yet.
-
-The app's own `/api/ibkr/*` routes handle the login. Vendor cookies and unfinished 2FA state are retained in encrypted HttpOnly cookies (`Path=/`, so server-side loaders can read them), using a key derived from `SESSION_SECRET`. Only `IBKR_ALLOWED_USERNAME` may sign in. No database table, Durable Object, extra server, or OAuth key is needed. POSTs to `/api` must come from the same origin as the request. Passwords are not persisted.
-
-The implementation has offline protocol tests but has not been verified with a live IBKR login or deployed. The user API action may require additional vendor context; the homepage reports that test's failure separately from authentication. This does not yet establish access to portfolio endpoints.
-
-Styling uses [StyleX](https://stylexjs.com). Tokens live in `apps/web/src/styles`: `tokens.stylex.ts` (Radix gray with dark variants, black/white alpha, black and white, Display P3 with an sRGB fallback; breakpoints, radius and fonts), `stylex.env.spacing(n)` for multiples of 4px, and `global.css` for the reset. The app is always dark (`color-scheme: dark` in `global.css`); tokens keep light values through `light-dark()` in case a light theme is added. The primitives in `apps/web/src/components/ui` are unstyled [Base UI](https://base-ui.com) wrappers adapted from shadcn/ui's Base UI registry; style them by passing `stylex.props(...)`.
-
-## Environment Configuration
-
-Each app owns its environment schema in `.env.schema`. Varlock generates `src/env.ts` during installation; run `bun run env:generate` after changing a schema. Commit schemas, and keep secrets in ignored env files or your deployment platform.
-
-Import the generated `ENV` accessor in application code. The shared database package receives its configuration from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
-
-Varlock checks the env in local dev only. Deployed, the Worker reads its own vars and secrets from `process.env`: builds use the plain Cloudflare plugin, so whatever sets them (the Deploy button, the dashboard, `wrangler secret put`) is the source of truth.
-
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
-
-Run standalone Node/Bun tools that use Varlock from the owning app directory so they load that app's schema and env files. `env:generate` only generates TypeScript files; it does not initialize environment values in a subsequent command.
-
-## Deployment
-
-One Cloudflare Worker serves the TanStack Start app and its Effect API. The source config is `wrangler.jsonc` at the repo root (where the Deploy button reads it); `bun run build` turns it into `apps/web/dist/server/wrangler.json`, and `bun run deploy` ships that. In Workers Builds, set the deploy command to `bun run deploy` (the Deploy button fills it in from `package.json`; the default `npx wrangler deploy` would read the source config instead of the build).
-
-The app stores nothing: IBKR data is fetched live, and the login session lives in encrypted cookies. The database package stays for later but is not deployed.
-
-### Private (the Deploy button)
-
-1. Click the button above. It asks for `SESSION_SECRET` and `IBKR_ALLOWED_USERNAME` (from `.dev.vars.example`) and keeps `IBKR_LOGIN_MODE=private` from `wrangler.jsonc`. Field descriptions live in `package.json` under `cloudflare.bindings`.
-2. In the dashboard, open the Worker, then **Settings → Domains & Routes → Cloudflare Access**, and protect **All traffic** (not just previews) with a policy that lets you in.
-
-Until Access is on, every page and API call answers 403. The Worker checks each request for a valid Cloudflare Access token (`Cf-Access-Jwt-Assertion`, signed by your Access team), so it needs no Access settings of its own. The check catches a deployment left without Access; Access itself is what keeps others out.
-
-### Demo
-
-A public deployment that only offers the demo account. From your machine, with `wrangler login` done:
+A public deployment that only offers the demo account, with no Access or secrets needed:
 
 ```bash
-bunx wrangler secret put SESSION_SECRET --name nora-demo
 bun run build && bun run deploy -- --name nora-demo --var IBKR_LOGIN_MODE:demo
 ```
 
-### From your machine
+## Development
 
-`bun run build && bun run deploy` builds and deploys the private Worker named in `wrangler.jsonc`. Set secrets once with `bunx wrangler secret put <NAME>`.
-
-## Project Structure
-
-```
-nora/
-├── wrangler.jsonc   # The Cloudflare Worker
-├── apps/
-│   └── web/         # TanStack Start app, with the Effect API in src/api
-├── packages/
-│   ├── ibkr/        # IBKR browser login and schemas
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run deploy`: Build and deploy the Worker
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate a SQL migration from schema changes
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
+Local setup, architecture and scripts: [DEVELOPMENT.md](DEVELOPMENT.md).
