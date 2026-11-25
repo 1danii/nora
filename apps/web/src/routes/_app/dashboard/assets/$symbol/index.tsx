@@ -16,7 +16,6 @@ import { PriceChart } from "@/components/price-chart";
 import { PriceTargetChart } from "@/components/price-target-chart";
 import { QueryBoundary } from "@/components/query-boundary";
 import { RangePicker } from "@/components/range-picker";
-import { RawData } from "@/components/raw-data";
 import { TickerLogo, TickerLogoPlaceholder } from "@/components/ticker-logo";
 import { InstantReveal } from "@/components/ui/skeleton";
 import {
@@ -1317,36 +1316,31 @@ const articleDate = new Intl.DateTimeFormat("en-US", {
 
 /** The latest articles about the company: headline, source and time. */
 const AssetArticles = ({ conid }: { conid: number }) => {
-  const { data: news } = useSuspenseQuery(assetNewsQuery(conid));
-  return (
-    <>
-      {news.articles.length > 0 ? (
-        <ul {...stylex.props(styles.articles)}>
-          {news.articles.map((article) => (
-            <li key={article.id} {...stylex.props(styles.article)}>
-              <span {...stylex.props(text[14], styles.articleTitle)}>
-                {article.title}
-              </span>
-              <span {...stylex.props(text[12], styles.note)}>
-                {[
-                  article.source,
-                  article.time instanceof Date
-                    ? articleDate.format(article.time)
-                    : article.time,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p {...stylex.props(text[14], styles.note)}>
-          IBKR has no articles about this company.
-        </p>
-      )}
-      <RawData data={news.raw} />
-    </>
+  const { data: articles } = useSuspenseQuery(assetNewsQuery(conid));
+  return articles.length > 0 ? (
+    <ul {...stylex.props(styles.articles)}>
+      {articles.map((article) => (
+        <li key={article.id} {...stylex.props(styles.article)}>
+          <span {...stylex.props(text[14], styles.articleTitle)}>
+            {article.title}
+          </span>
+          <span {...stylex.props(text[12], styles.note)}>
+            {[
+              article.source,
+              article.time instanceof Date
+                ? articleDate.format(article.time)
+                : article.time,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p {...stylex.props(text[14], styles.note)}>
+      IBKR has no articles about this company.
+    </p>
   );
 };
 

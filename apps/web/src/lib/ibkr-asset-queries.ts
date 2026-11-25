@@ -902,11 +902,9 @@ export const assetNewsQuery = (conid: number) =>
     queryFn: async ({ client }) => {
       await requireBrokerage(client);
       // Current IBKR clients request headlines from news2, outside fundamentals.
-      const raw = await requestIbkrNews(
-        `landing/${conid}?widgets=news&lang=en`
+      return parseIbkrNewsWidget(
+        await requestIbkrNews(`landing/${conid}?widgets=news&lang=en`)
       );
-      const articles = parseIbkrNewsWidget(raw);
-      return { articles, raw };
     },
     retry: false,
     staleTime: 5 * 60_000,
